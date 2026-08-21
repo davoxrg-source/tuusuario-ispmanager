@@ -1,3 +1,4 @@
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,10 +12,12 @@ from app.models.mikrotik_device import DeviceStatus, MikrotikDevice
 from app.schemas.mikrotik_device import (
     ConnectionTestResult,
     DeviceResourceStatus,
+    DiscoveredDeviceRead,
     MikrotikDeviceCreate,
     MikrotikDeviceRead,
     MikrotikDeviceUpdate,
 )
+from app.services.mikrotik import discovery
 from app.services.mikrotik.device_service import DeviceService
 
 router = APIRouter(prefix="/devices", tags=["devices"], dependencies=[Depends(get_current_user)])
@@ -30,6 +33,27 @@ def _get_device_or_404(db: Session, device_id: uuid.UUID) -> MikrotikDevice:
 @router.get("", response_model=list[MikrotikDeviceRead])
 def list_devices(db: Session = Depends(get_db)) -> list[MikrotikDevice]:
     return db.query(MikrotikDevice).order_by(MikrotikDevice.name).all()
+
+
+@router.get("/discovered", response_model=list[DiscoveredDeviceRead])
+def list_discovered_devices() -> list[DiscoveredDeviceRead]:
+    """Equipos Mikrotik vistos en la red local vía MNDP en los últimos segundos.
+
+    Requiere que este servidor esté en el mismo segmento L2 que los equipos;
+    si no aparece nada, revisa que /ip neighbor discovery-settings esté
+    habilitado en el router y que no haya un firewall bloqueando el broadcast.
+    """
+    return [
+        DiscoveredDeviceRead(
+            mac_address=d.mac_address,
+            ip_address=d.ip_address,
+            identity=d.identity,
+            version=d.version,
+            platform=d.platform,
+            seen_seconds_ago=round(time.time() - d.seen_at, 1),
+        )
+        for d in discovery.listener.list_discovered()
+    ]
 
 
 @router.post("", response_model=MikrotikDeviceRead, status_code=201, dependencies=[Depends(require_admin)])
@@ -75,7 +99,7 @@ def test_connection(device_id: uuid.UUID, db: Session = Depends(get_db)) -> Conn
     device = _get_device_or_404(db, device_id)
     password = decrypt_secret(device.encrypted_password)
     service = DeviceService(device, password)
-    result = service.test_connection()
+    result = service.test_connection(db=db)
 
     device.status = DeviceStatus.ONLINE if result.success else DeviceStatus.OFFLINE
     device.last_seen_at = func.now() if result.success else device.last_seen_at

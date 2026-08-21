@@ -11,6 +11,7 @@ bcrypt==4.2.0
 cryptography==43.0.1
 librouteros==3.4.1
 paramiko==3.4.1
+pexpect==4.9.0
 python-multipart==0.0.9
 pytest==8.3.3
 pytest-asyncio==0.24.0

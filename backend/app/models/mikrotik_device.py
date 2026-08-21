@@ -24,6 +24,9 @@ class MikrotikDevice(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(120))
     site: Mapped[str | None] = mapped_column(String(120), nullable=True)
     host: Mapped[str] = mapped_column(String(255))
+    # Dirección física, estable aunque la IP cambie. Usada para redescubrir el
+    # equipo por MNDP si la IP guardada deja de responder (ver services/mikrotik/discovery.py).
+    mac_address: Mapped[str | None] = mapped_column(String(17), nullable=True, index=True)
     api_port: Mapped[int] = mapped_column(Integer, default=8728)
     api_use_tls: Mapped[bool] = mapped_column(default=False)
     ssh_port: Mapped[int] = mapped_column(Integer, default=22)

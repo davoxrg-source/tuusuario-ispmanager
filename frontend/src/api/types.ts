@@ -15,6 +15,7 @@ export interface MikrotikDevice {
   name: string;
   site: string | null;
   host: string;
+  mac_address: string | null;
   api_port: number;
   api_use_tls: boolean;
   ssh_port: number;
@@ -25,10 +26,20 @@ export interface MikrotikDevice {
   last_seen_at: string | null;
 }
 
+export interface DiscoveredDevice {
+  mac_address: string;
+  ip_address: string;
+  identity: string | null;
+  version: string | null;
+  platform: string | null;
+  seen_seconds_ago: number;
+}
+
 export interface MikrotikDeviceInput {
   name: string;
   site?: string | null;
   host: string;
+  mac_address?: string | null;
   api_port: number;
   api_use_tls: boolean;
   ssh_port: number;
@@ -43,6 +54,8 @@ export interface ConnectionTestResult {
   identity: string | null;
   routeros_version: string | null;
   uptime_seconds: number | null;
+  resolved_via_mac: boolean;
+  updated_host: string | null;
 }
 
 export interface DeviceResourceStatus {

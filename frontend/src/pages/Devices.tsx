@@ -5,15 +5,17 @@ import {
   createDevice,
   deleteDevice,
   listDevices,
+  listDiscoveredDevices,
   rebootDevice,
   testConnection,
 } from "../api/devices";
-import type { MikrotikDeviceInput } from "../api/types";
+import type { DiscoveredDevice, MikrotikDeviceInput } from "../api/types";
 
 const emptyForm: MikrotikDeviceInput = {
   name: "",
   site: "",
   host: "",
+  mac_address: "",
   api_port: 8728,
   api_use_tls: false,
   ssh_port: 22,
@@ -24,9 +26,28 @@ const emptyForm: MikrotikDeviceInput = {
 export default function Devices() {
   const queryClient = useQueryClient();
   const { data: devices = [], isLoading } = useQuery({ queryKey: ["devices"], queryFn: listDevices });
+  const { data: discovered = [] } = useQuery({
+    queryKey: ["devices-discovered"],
+    queryFn: listDiscoveredDevices,
+    refetchInterval: 15000,
+    retry: false,
+  });
   const [form, setForm] = useState<MikrotikDeviceInput>(emptyForm);
   const [showForm, setShowForm] = useState(false);
   const [testResult, setTestResult] = useState<Record<string, string>>({});
+
+  const knownMacs = new Set(devices.map((d) => d.mac_address).filter(Boolean));
+  const undiscoveredDevices = discovered.filter((d) => !knownMacs.has(d.mac_address));
+
+  function handleRegisterDiscovered(d: DiscoveredDevice) {
+    setForm({
+      ...emptyForm,
+      name: d.identity || d.ip_address,
+      host: d.ip_address,
+      mac_address: d.mac_address,
+    });
+    setShowForm(true);
+  }
 
   const createMutation = useMutation({
     mutationFn: createDevice,
@@ -46,7 +67,10 @@ export default function Devices() {
     setTestResult((prev) => ({ ...prev, [id]: "Probando..." }));
     try {
       const result = await testConnection(id);
-      setTestResult((prev) => ({ ...prev, [id]: result.message }));
+      const message = result.resolved_via_mac
+        ? `${result.message} (IP actualizada automáticamente a ${result.updated_host ?? "—"} por MAC)`
+        : result.message;
+      setTestResult((prev) => ({ ...prev, [id]: message }));
       queryClient.invalidateQueries({ queryKey: ["devices"] });
     } catch {
       setTestResult((prev) => ({ ...prev, [id]: "Error al probar la conexión." }));
@@ -76,6 +100,45 @@ export default function Devices() {
         </button>
       </div>
 
+      {undiscoveredDevices.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-5">
+          <h2 className="text-sm font-medium text-slate-600 mb-1">Detectados en la red</h2>
+          <p className="text-xs text-slate-400 mb-3">
+            Equipos Mikrotik anunciándose por MNDP en esta red que aún no están registrados.
+            Requiere que este servidor esté en el mismo segmento de red que el equipo.
+          </p>
+          <table className="w-full text-sm">
+            <thead className="text-left text-slate-500">
+              <tr>
+                <th className="py-1">Identidad</th>
+                <th className="py-1">IP</th>
+                <th className="py-1">MAC</th>
+                <th className="py-1">Visto hace</th>
+                <th className="py-1"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {undiscoveredDevices.map((d) => (
+                <tr key={d.mac_address} className="border-t">
+                  <td className="py-1">{d.identity ?? "—"}</td>
+                  <td className="py-1">{d.ip_address}</td>
+                  <td className="py-1 font-mono text-xs">{d.mac_address}</td>
+                  <td className="py-1">{Math.round(d.seen_seconds_ago)}s</td>
+                  <td className="py-1">
+                    <button
+                      onClick={() => handleRegisterDiscovered(d)}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      Registrar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-5 grid grid-cols-2 gap-4">
           <input
@@ -97,6 +160,12 @@ export default function Devices() {
             value={form.host}
             onChange={(e) => setForm({ ...form, host: e.target.value })}
             className="border rounded px-3 py-2 text-sm"
+          />
+          <input
+            placeholder="MAC (opcional, para redescubrir si cambia la IP)"
+            value={form.mac_address ?? ""}
+            onChange={(e) => setForm({ ...form, mac_address: e.target.value })}
+            className="border rounded px-3 py-2 text-sm font-mono"
           />
           <input
             required
@@ -154,6 +223,7 @@ export default function Devices() {
               <tr>
                 <th className="px-4 py-2">Nombre</th>
                 <th className="px-4 py-2">Host</th>
+                <th className="px-4 py-2">MAC</th>
                 <th className="px-4 py-2">Estado</th>
                 <th className="px-4 py-2">RouterOS</th>
                 <th className="px-4 py-2">Acciones</th>
@@ -169,6 +239,7 @@ export default function Devices() {
                     {device.site && <div className="text-xs text-slate-400">{device.site}</div>}
                   </td>
                   <td className="px-4 py-2">{device.host}</td>
+                  <td className="px-4 py-2 font-mono text-xs">{device.mac_address ?? "—"}</td>
                   <td className="px-4 py-2">
                     <span
                       className={`inline-block rounded-full px-2 py-0.5 text-xs ${
@@ -204,7 +275,7 @@ export default function Devices() {
               ))}
               {devices.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
+                  <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
                     Aún no hay equipos registrados.
                   </td>
                 </tr>

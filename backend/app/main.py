@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import auth, billing, clients, devices, monitoring, plans
 from app.core.config import get_settings
+from app.services.mikrotik.discovery import listener as mndp_listener
 from app.workers.poller import poll_devices_forever, run_daily_billing_forever
 
 logging.basicConfig(level=logging.INFO)
@@ -18,6 +19,7 @@ background_tasks: list[asyncio.Task] = []
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    mndp_listener.start()
     background_tasks.append(asyncio.create_task(poll_devices_forever()))
     background_tasks.append(asyncio.create_task(run_daily_billing_forever()))
     try:
@@ -26,6 +28,7 @@ async def lifespan(app: FastAPI):
         for task in background_tasks:
             task.cancel()
         await asyncio.gather(*background_tasks, return_exceptions=True)
+        mndp_listener.stop()
 
 
 settings = get_settings()

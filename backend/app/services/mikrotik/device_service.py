@@ -7,13 +7,15 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy.orm import Session
+
 from app.models.mikrotik_device import MikrotikDevice
 from app.schemas.mikrotik_device import (
     ActivePppSession,
     ConnectionTestResult,
     DeviceResourceStatus,
 )
-from app.services.mikrotik import api_client, ssh_client
+from app.services.mikrotik import api_client, discovery, mactelnet_client, ssh_client
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,7 @@ class DeviceService:
             port=self.device.ssh_port,
         )
 
-    def test_connection(self) -> ConnectionTestResult:
+    def _test_connection_at_current_host(self) -> ConnectionTestResult:
         try:
             with self._api() as api:
                 identity = api_client.get_identity(api)
@@ -70,6 +72,62 @@ class DeviceService:
                     method="none",
                     message=f"API falló ({api_error}); SSH también falló ({ssh_error}).",
                 )
+
+    def resolve_host_via_mac(self, db: Session) -> str | None:
+        """Si el equipo tiene MAC registrada y MNDP la vio con otra IP, actualiza
+        device.host en la base de datos. Devuelve la IP nueva si hubo cambio."""
+        if not self.device.mac_address:
+            return None
+        seen = discovery.listener.get_by_mac(self.device.mac_address)
+        if seen is None or seen.is_stale or seen.ip_address == self.device.host:
+            return None
+
+        logger.info(
+            "Equipo %s: IP cambió de %s a %s (detectado por MAC %s).",
+            self.device.name,
+            self.device.host,
+            seen.ip_address,
+            self.device.mac_address,
+        )
+        self.device.host = seen.ip_address
+        db.commit()
+        return seen.ip_address
+
+    def test_connection(self, db: Session | None = None) -> ConnectionTestResult:
+        result = self._test_connection_at_current_host()
+        if result.success or db is None or not self.device.mac_address:
+            return result
+
+        # La IP guardada falló por completo: intentamos redescubrir por MAC
+        # antes de rendirnos (ver discovery.py).
+        new_host = self.resolve_host_via_mac(db)
+        if new_host:
+            retry = self._test_connection_at_current_host()
+            if retry.success:
+                retry.resolved_via_mac = True
+                retry.updated_host = new_host
+                return retry
+            result = retry
+
+        # Último recurso: MAC-Telnet, solo funciona en la misma red L2 y con
+        # el binario externo instalado (ver mactelnet_client.py).
+        try:
+            identity = mactelnet_client.get_identity(
+                self.device.mac_address, self.device.username, self.password
+            )
+            return ConnectionTestResult(
+                success=True,
+                method="mactelnet",
+                message="API y SSH fallaron; se alcanzó el equipo por MAC-Telnet (último recurso).",
+                identity=identity,
+                resolved_via_mac=True,
+            )
+        except mactelnet_client.MacTelnetError as mactelnet_error:
+            return ConnectionTestResult(
+                success=False,
+                method="none",
+                message=f"{result.message} MAC-Telnet también falló ({mactelnet_error}).",
+            )
 
     def get_status(self) -> DeviceResourceStatus:
         with self._api() as api:

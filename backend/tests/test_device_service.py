@@ -1,8 +1,11 @@
+import time
 from contextlib import contextmanager
 
 from app.models.mikrotik_device import MikrotikDevice
 from app.services.mikrotik import device_service as device_service_module
+from app.services.mikrotik import discovery
 from app.services.mikrotik.device_service import DeviceService
+from app.services.mikrotik.discovery import DiscoveredDevice
 
 
 class FakeRouterOsApi:
@@ -92,3 +95,94 @@ def test_get_interfaces_snapshot(monkeypatch):
         {"name": "ether1", "rx_bytes": 1000, "tx_bytes": 2000, "running": True},
         {"name": "ether2", "rx_bytes": 500, "tx_bytes": 700, "running": False},
     ]
+
+
+class _FakeDb:
+    """db falso: solo necesitamos que .commit() no truene."""
+
+    def commit(self) -> None:
+        pass
+
+
+def test_test_connection_auto_heals_ip_via_mac(monkeypatch):
+    device = MikrotikDevice(
+        name="Router Lab",
+        host="10.0.0.1",  # IP vieja, ya no responde
+        mac_address="00:0C:42:01:02:03",
+        api_port=8728,
+        api_use_tls=False,
+        ssh_port=22,
+        username="admin",
+        encrypted_password="unused-in-test",
+    )
+    service = DeviceService(device, password="whatever")
+
+    @contextmanager
+    def fake_api_connection(**kwargs):
+        if kwargs["host"] != "10.0.0.2":
+            raise device_service_module.api_client.RouterOsApiError("no responde en la IP vieja")
+        yield FakeRouterOsApi()
+
+    @contextmanager
+    def fake_ssh_connection(**kwargs):
+        raise device_service_module.ssh_client.RouterOsSshError("ssh tampoco disponible")
+        yield  # pragma: no cover - nunca se alcanza, mantiene la función como generador
+
+    monkeypatch.setattr(device_service_module.api_client, "api_connection", fake_api_connection)
+    monkeypatch.setattr(device_service_module.ssh_client, "ssh_connection", fake_ssh_connection)
+    monkeypatch.setattr(
+        discovery.listener,
+        "get_by_mac",
+        lambda mac: DiscoveredDevice(
+            mac_address=mac, ip_address="10.0.0.2", identity="lab-router", seen_at=time.time()
+        ),
+    )
+
+    result = service.test_connection(db=_FakeDb())
+
+    assert result.success is True
+    assert result.method == "api"
+    assert result.resolved_via_mac is True
+    assert result.updated_host == "10.0.0.2"
+    assert device.host == "10.0.0.2"  # se persistió el cambio en el modelo
+
+
+def test_test_connection_ignores_stale_mac_discovery(monkeypatch):
+    device = MikrotikDevice(
+        name="Router Lab",
+        host="10.0.0.1",
+        mac_address="00:0C:42:01:02:03",
+        api_port=8728,
+        api_use_tls=False,
+        ssh_port=22,
+        username="admin",
+        encrypted_password="unused-in-test",
+    )
+    service = DeviceService(device, password="whatever")
+
+    @contextmanager
+    def always_fails_api(**kwargs):
+        raise device_service_module.api_client.RouterOsApiError("no responde")
+        yield  # pragma: no cover
+
+    @contextmanager
+    def always_fails_ssh(**kwargs):
+        raise device_service_module.ssh_client.RouterOsSshError("no responde")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(device_service_module.api_client, "api_connection", always_fails_api)
+    monkeypatch.setattr(device_service_module.ssh_client, "ssh_connection", always_fails_ssh)
+    monkeypatch.setattr(
+        discovery.listener,
+        "get_by_mac",
+        lambda mac: DiscoveredDevice(
+            mac_address=mac,
+            ip_address="10.0.0.2",
+            seen_at=time.time() - 3600,  # visto hace 1h: se considera obsoleto
+        ),
+    )
+
+    result = service.test_connection(db=_FakeDb())
+
+    assert result.success is False
+    assert device.host == "10.0.0.1"  # no se tocó: el dato de MNDP era viejo

@@ -4,12 +4,18 @@ import type {
   ConnectionTestResult,
   DeviceMetric,
   DeviceResourceStatus,
+  DiscoveredDevice,
   MikrotikDevice,
   MikrotikDeviceInput,
 } from "./types";
 
 export async function listDevices(): Promise<MikrotikDevice[]> {
   const { data } = await apiClient.get<MikrotikDevice[]>("/devices");
+  return data;
+}
+
+export async function listDiscoveredDevices(): Promise<DiscoveredDevice[]> {
+  const { data } = await apiClient.get<DiscoveredDevice[]>("/devices/discovered");
   return data;
 }
 

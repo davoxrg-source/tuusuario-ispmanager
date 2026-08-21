@@ -10,6 +10,7 @@ class MikrotikDeviceBase(BaseModel):
     name: str
     site: str | None = None
     host: str
+    mac_address: str | None = None
     api_port: int = 8728
     api_use_tls: bool = False
     ssh_port: int = 22
@@ -24,6 +25,7 @@ class MikrotikDeviceUpdate(BaseModel):
     name: str | None = None
     site: str | None = None
     host: str | None = None
+    mac_address: str | None = None
     api_port: int | None = None
     api_use_tls: bool | None = None
     ssh_port: int | None = None
@@ -48,6 +50,17 @@ class ConnectionTestResult(BaseModel):
     identity: str | None = None
     routeros_version: str | None = None
     uptime_seconds: int | None = None
+    resolved_via_mac: bool = False
+    updated_host: str | None = None
+
+
+class DiscoveredDeviceRead(BaseModel):
+    mac_address: str
+    ip_address: str
+    identity: str | None = None
+    version: str | None = None
+    platform: str | None = None
+    seen_seconds_ago: float
 
 
 class DeviceResourceStatus(BaseModel):

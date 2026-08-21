@@ -78,6 +78,48 @@ Un worker en background (dentro del mismo proceso de uvicorn) sondea cada
 CPU/memoria/uptime/sesiones PPP activas en `device_metrics` para los gráficos
 de monitoreo.
 
+### Gestión por MAC (equipo con IP inestable/perdida)
+
+Si un equipo tiene su `mac_address` registrada, el sistema puede seguir
+encontrándolo aunque su IP cambie o deje de responder:
+
+1. **Descubrimiento MNDP** (`backend/app/services/mikrotik/discovery.py`):
+   un listener en background escucha los anuncios que cada Mikrotik transmite
+   por broadcast/multicast UDP al puerto 5678 (Neighbor Discovery, activado
+   por defecto en RouterOS). El endpoint `GET /api/devices/discovered`
+   muestra lo que ve ahora mismo — identidad, MAC, IP — para registrar un
+   equipo con un clic desde el panel ("Detectados en la red" en la página de
+   Equipos) en vez de escribir la IP a mano.
+2. **Auto-reparación de IP**: si la IP guardada de un equipo deja de
+   responder (tanto por API como por SSH) y el equipo tiene MAC registrada,
+   el sistema busca esa MAC en la caché de MNDP; si la encuentra con otra IP,
+   reintenta la conexión ahí y, si funciona, actualiza `host` en la base de
+   datos automáticamente. Esto ocurre tanto al pulsar "Probar conexión" como
+   en cada ciclo del poller de monitoreo.
+3. **MAC-Telnet como último recurso**: si ni la IP guardada ni el
+   descubrimiento MNDP funcionan, se intenta alcanzar el equipo directamente
+   por su MAC vía MAC-Telnet (el mismo mecanismo que usa Winbox cuando un
+   equipo no tiene IP). Esto tiene requisitos que **no se instalan
+   automáticamente**:
+   - El binario externo [`mactelnet`](https://github.com/haakonnessjoen/MAC-Telnet)
+     instalado en el servidor (paquete del sistema si está disponible, o
+     compilado desde el repo).
+   - Permisos de socket crudo sobre ese binario:
+     `sudo setcap cap_net_raw+ep /ruta/al/binario/mactelnet`.
+   - El servidor debe estar en el **mismo segmento físico/VLAN** que el
+     Mikrotik — no funciona a través de un router/firewall que no reenvíe
+     ese tráfico de capa 2.
+
+   Si el binario no está instalado o falla el permiso, el sistema lo reporta
+   igual que un fallo de SSH (mensaje claro, sin tirar el proceso) — nunca es
+   obligatorio para el resto de la app.
+
+**Importante**: tanto el descubrimiento MNDP como MAC-Telnet requieren que
+este servidor esté conectado a la misma red local (LAN/VLAN) que los equipos
+Mikrotik. Si el backend corre en una red distinta (ej. una nube separada de
+la red del ISP), ninguno de los dos mecanismos va a funcionar — solo quedará
+la gestión por IP.
+
 ## Facturación
 
 Una tarea diaria en background:

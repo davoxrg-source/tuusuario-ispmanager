@@ -31,8 +31,18 @@ def _poll_device_once(db: Session, device: MikrotikDevice) -> None:
     password = decrypt_secret(device.encrypted_password)
     service = DeviceService(device, password)
     try:
-        status = service.get_status()
-        interfaces = service.get_interfaces_snapshot()
+        try:
+            status = service.get_status()
+            interfaces = service.get_interfaces_snapshot()
+        except Exception:
+            # La IP guardada no respondió: si hay MAC registrada, intentamos
+            # redescubrir la IP actual por MNDP antes de marcar el equipo offline.
+            new_host = service.resolve_host_via_mac(db)
+            if not new_host:
+                raise
+            status = service.get_status()
+            interfaces = service.get_interfaces_snapshot()
+
         device.status = DeviceStatus.ONLINE
         db.add(
             DeviceMetric(
