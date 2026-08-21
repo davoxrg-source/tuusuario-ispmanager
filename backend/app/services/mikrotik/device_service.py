@@ -189,6 +189,25 @@ class DeviceService:
         with self._ssh() as client:
             ssh_client.reboot(client)
 
+    def reset_to_factory_defaults(self, no_defaults: bool = True) -> None:
+        """ACCIÓN DESTRUCTIVA: borra toda la configuración del equipo y lo
+        reinicia. Con no_defaults=True el equipo queda sin ninguna IP asignada
+        (solo alcanzable por MAC vía MNDP/MAC-Telnet) hasta configurarlo desde cero."""
+        logger.warning(
+            "Ejecutando reset de configuración de fábrica en %s (%s) — no_defaults=%s",
+            self.device.name,
+            self.device.host,
+            no_defaults,
+        )
+        try:
+            with self._api() as api:
+                api_client.reset_configuration(api, no_defaults=no_defaults)
+                return
+        except api_client.RouterOsApiError:
+            logger.warning("Reset vía API falló para %s, probando SSH.", self.device.host)
+        with self._ssh() as client:
+            ssh_client.reset_configuration(client, no_defaults=no_defaults)
+
 
 def _safe_int(value, sub: int | None = None) -> int | None:
     if value is None:

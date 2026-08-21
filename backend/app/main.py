@@ -6,6 +6,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import Scope
 
 from app.api.routes import auth, billing, clients, devices, monitoring, plans
 from app.core.config import get_settings
@@ -57,7 +59,25 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+class SpaStaticFiles(StaticFiles):
+    """StaticFiles que cae a index.html en cualquier 404, para que refrescar
+    una ruta de React Router (ej. /devices) no devuelva un 404 crudo: el
+    ruteo real lo resuelve el navegador una vez que carga la SPA.
+
+    Nunca aplica este fallback a rutas /api/*: una ruta de API inexistente
+    debe seguir devolviendo un 404 real, no el HTML de la SPA."""
+
+    async def get_response(self, path: str, scope: Scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            request_path = scope.get("path", "")
+            if exc.status_code == 404 and not request_path.startswith("/api/"):
+                return await super().get_response("index.html", scope)
+            raise
+
+
 # Sirve el build de React (frontend/dist) para tener un único servicio/puerto.
 frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 if frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+    app.mount("/", SpaStaticFiles(directory=frontend_dist, html=True), name="frontend")

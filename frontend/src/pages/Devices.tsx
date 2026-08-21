@@ -7,6 +7,7 @@ import {
   listDevices,
   listDiscoveredDevices,
   rebootDevice,
+  resetDeviceToDefaults,
   testConnection,
 } from "../api/devices";
 import type { DiscoveredDevice, MikrotikDeviceInput } from "../api/types";
@@ -81,6 +82,25 @@ export default function Devices() {
     if (!confirm("¿Reiniciar este equipo Mikrotik ahora?")) return;
     await rebootDevice(id);
     alert("Reinicio enviado.");
+  }
+
+  async function handleResetToDefaults(id: string, name: string) {
+    const typed = prompt(
+      `Esto BORRA TODA la configuración de "${name}" y lo reinicia — quedará sin ninguna IP asignada ` +
+        `(solo se podrá encontrar por MAC).\n\nEsta acción no se puede deshacer.\n\n` +
+        `Para confirmar, escribe exactamente el nombre del equipo: ${name}`,
+    );
+    if (typed !== name) {
+      if (typed !== null) alert("El nombre no coincide. No se hizo ningún cambio.");
+      return;
+    }
+    try {
+      const result = await resetDeviceToDefaults(id, name);
+      alert(result.detail);
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+    } catch {
+      alert("No se pudo restablecer el equipo a su configuración de fábrica.");
+    }
   }
 
   function handleSubmit(e: FormEvent) {
@@ -174,14 +194,18 @@ export default function Devices() {
             onChange={(e) => setForm({ ...form, username: e.target.value })}
             className="border rounded px-3 py-2 text-sm"
           />
-          <input
-            required
-            type="password"
-            placeholder="Contraseña"
-            value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-            className="border rounded px-3 py-2 text-sm"
-          />
+          <div>
+            <input
+              type="password"
+              placeholder="Contraseña"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+            <p className="text-xs text-slate-400 mt-1">
+              Déjala vacía si el equipo es nuevo de fábrica y aún no tiene contraseña configurada.
+            </p>
+          </div>
           <input
             type="number"
             placeholder="Puerto API"
@@ -260,6 +284,13 @@ export default function Devices() {
                     </button>
                     <button onClick={() => handleReboot(device.id)} className="text-xs text-amber-600 hover:underline">
                       Reiniciar
+                    </button>
+                    <button
+                      onClick={() => handleResetToDefaults(device.id, device.name)}
+                      className="text-xs text-red-700 hover:underline font-medium"
+                      title="Borra TODA la configuración del equipo y lo reinicia sin config de fábrica"
+                    >
+                      Restablecer a fábrica
                     </button>
                     <button
                       onClick={() => deleteMutation.mutate(device.id)}

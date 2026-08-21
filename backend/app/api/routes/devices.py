@@ -16,6 +16,7 @@ from app.schemas.mikrotik_device import (
     MikrotikDeviceCreate,
     MikrotikDeviceRead,
     MikrotikDeviceUpdate,
+    ResetConfigurationRequest,
 )
 from app.services.mikrotik import discovery
 from app.services.mikrotik.device_service import DeviceService
@@ -130,3 +131,38 @@ def reboot_device(device_id: uuid.UUID, db: Session = Depends(get_db)) -> dict:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"No se pudo reiniciar el equipo: {exc}")
     return {"detail": "Reinicio enviado."}
+
+
+@router.post(
+    "/{device_id}/reset-to-defaults", status_code=202, dependencies=[Depends(require_admin)]
+)
+def reset_device_to_defaults(
+    device_id: uuid.UUID, payload: ResetConfigurationRequest, db: Session = Depends(get_db)
+) -> dict:
+    """ACCIÓN DESTRUCTIVA: borra toda la configuración del equipo y lo reinicia.
+
+    Exige repetir el nombre exacto del equipo en `confirm_name` como
+    confirmación explícita — no basta un simple `true/false`.
+    """
+    device = _get_device_or_404(db, device_id)
+    if payload.confirm_name != device.name:
+        raise HTTPException(
+            status_code=400,
+            detail="El nombre de confirmación no coincide con el nombre del equipo.",
+        )
+
+    password = decrypt_secret(device.encrypted_password)
+    service = DeviceService(device, password)
+    try:
+        service.reset_to_factory_defaults(no_defaults=payload.no_defaults)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"No se pudo restablecer el equipo: {exc}")
+
+    device.status = DeviceStatus.UNKNOWN
+    db.commit()
+    return {
+        "detail": (
+            "Reset a configuración de fábrica enviado. El equipo se reiniciará y puede "
+            "quedar sin ninguna IP asignada — búscalo en 'Detectados en la red' por su MAC."
+        )
+    }

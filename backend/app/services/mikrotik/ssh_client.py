@@ -71,3 +71,13 @@ def reboot(client: paramiko.SSHClient) -> None:
     except paramiko.SSHException:
         # El router corta la sesión SSH al reiniciar; es el comportamiento esperado.
         pass
+
+
+def reset_configuration(client: paramiko.SSHClient, no_defaults: bool = True) -> None:
+    """Ver api_client.reset_configuration: borra TODA la config y reinicia el equipo."""
+    flag = "yes" if no_defaults else "no"
+    try:
+        client.exec_command(f"/system reset-configuration no-defaults={flag} skip-backup=yes")
+    except paramiko.SSHException:
+        # El router corta la sesión SSH al reiniciar; es el comportamiento esperado.
+        pass

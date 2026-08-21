@@ -76,3 +76,10 @@ class ActivePppSession(BaseModel):
     address: str | None = None
     uptime: str | None = None
     caller_id: str | None = None
+
+
+class ResetConfigurationRequest(BaseModel):
+    # Acción destructiva: exige repetir el nombre exacto del equipo como
+    # confirmación explícita, además del diálogo de confirmación del frontend.
+    confirm_name: str
+    no_defaults: bool = True

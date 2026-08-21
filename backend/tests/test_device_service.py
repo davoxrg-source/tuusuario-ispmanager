@@ -85,6 +85,28 @@ def test_get_status_reports_active_sessions(monkeypatch):
     assert status.memory_used_bytes == 134217728 - 100000000
 
 
+def test_reset_to_factory_defaults_sends_correct_command(monkeypatch):
+    service = DeviceService(_fake_device(), password="whatever")
+    calls = []
+
+    @contextmanager
+    def fake_api_connection(**kwargs):
+        class RecordingApi:
+            def __call__(self, cmd, **cmd_kwargs):
+                calls.append((cmd, cmd_kwargs))
+                return iter([])
+
+        yield RecordingApi()
+
+    monkeypatch.setattr(device_service_module.api_client, "api_connection", fake_api_connection)
+
+    service.reset_to_factory_defaults(no_defaults=True)
+
+    assert calls == [
+        ("/system/reset-configuration", {"no-defaults": "yes", "skip-backup": "yes"})
+    ]
+
+
 def test_get_interfaces_snapshot(monkeypatch):
     service = DeviceService(_fake_device(), password="whatever")
     _patch_api_connection(monkeypatch, FakeRouterOsApi())

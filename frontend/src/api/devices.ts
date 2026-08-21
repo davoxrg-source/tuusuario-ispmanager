@@ -55,6 +55,18 @@ export async function rebootDevice(id: string): Promise<void> {
   await apiClient.post(`/devices/${id}/reboot`);
 }
 
+export async function resetDeviceToDefaults(
+  id: string,
+  confirmName: string,
+  noDefaults = true,
+): Promise<{ detail: string }> {
+  const { data } = await apiClient.post<{ detail: string }>(`/devices/${id}/reset-to-defaults`, {
+    confirm_name: confirmName,
+    no_defaults: noDefaults,
+  });
+  return data;
+}
+
 export async function getDeviceMetrics(id: string, limit = 100): Promise<DeviceMetric[]> {
   const { data } = await apiClient.get<DeviceMetric[]>(`/devices/${id}/metrics`, { params: { limit } });
   return data;

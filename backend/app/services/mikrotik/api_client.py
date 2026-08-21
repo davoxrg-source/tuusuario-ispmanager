@@ -113,3 +113,16 @@ def remove_ppp_secret(api: Any, pppoe_username: str) -> bool:
 
 def reboot(api: Any) -> None:
     list(api("/system/reboot"))
+
+
+def reset_configuration(api: Any, no_defaults: bool = True) -> None:
+    """Borra TODA la configuración del equipo y lo reinicia. Con no_defaults=True
+    (equivalente a 'no-defaults=yes' en RouterOS) el equipo queda sin bridge, sin
+    DHCP client y SIN NINGUNA IP asignada — solo queda alcanzable por MAC
+    (MNDP/MAC-Telnet) hasta que se le configure una interfaz manualmente."""
+    list(
+        api(
+            "/system/reset-configuration",
+            **{"no-defaults": "yes" if no_defaults else "no", "skip-backup": "yes"},
+        )
+    )
