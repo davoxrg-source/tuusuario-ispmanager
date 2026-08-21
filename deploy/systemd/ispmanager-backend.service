@@ -1,0 +1,17 @@
+[Unit]
+Description=ISP Manager backend (FastAPI + poller de Mikrotik)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=ispapp
+Group=ispapp
+WorkingDirectory=/home/ispapp/ispmanager/backend
+EnvironmentFile=/home/ispapp/ispmanager/backend/.env
+ExecStart=/home/ispapp/ispmanager/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

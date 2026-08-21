@@ -1,0 +1,34 @@
+# Permisos sudo sin contraseña para el usuario ispapp, acotados EXCLUSIVAMENTE
+# a las acciones que requiere administrar ISP Manager (instalación de paquetes,
+# el servicio systemd del backend, y administración de PostgreSQL como el rol
+# "postgres"). No otorga acceso root ilimitado.
+#
+# Instalar con:
+#   sudo install -m 0440 -o root -g root deploy/scripts/ispmanager-sudoers /etc/sudoers.d/ispmanager-claude
+
+Cmnd_Alias ISPMANAGER_APT = /usr/bin/apt-get update, \
+    /usr/bin/apt-get install -y *, \
+    /usr/bin/apt-get upgrade -y *
+
+Cmnd_Alias ISPMANAGER_SYSTEMCTL = /usr/bin/systemctl daemon-reload, \
+    /usr/bin/systemctl enable ispmanager-backend, \
+    /usr/bin/systemctl enable --now ispmanager-backend, \
+    /usr/bin/systemctl disable ispmanager-backend, \
+    /usr/bin/systemctl start ispmanager-backend, \
+    /usr/bin/systemctl stop ispmanager-backend, \
+    /usr/bin/systemctl restart ispmanager-backend, \
+    /usr/bin/systemctl status ispmanager-backend, \
+    /usr/bin/systemctl start postgresql, \
+    /usr/bin/systemctl stop postgresql, \
+    /usr/bin/systemctl restart postgresql, \
+    /usr/bin/systemctl status postgresql, \
+    /usr/bin/systemctl enable postgresql
+
+Cmnd_Alias ISPMANAGER_FILES = /usr/bin/cp /home/ispapp/ispmanager/deploy/systemd/ispmanager-backend.service /etc/systemd/system/ispmanager-backend.service, \
+    /usr/bin/install -m 0644 -o root -g root /home/ispapp/ispmanager/deploy/systemd/ispmanager-backend.service /etc/systemd/system/ispmanager-backend.service
+
+Cmnd_Alias ISPMANAGER_LOGS = /usr/bin/journalctl -u ispmanager-backend *, \
+    /usr/bin/journalctl -u postgresql *
+
+ispapp ALL=(root) NOPASSWD: ISPMANAGER_APT, ISPMANAGER_SYSTEMCTL, ISPMANAGER_FILES, ISPMANAGER_LOGS
+ispapp ALL=(postgres) NOPASSWD: /usr/bin/psql
