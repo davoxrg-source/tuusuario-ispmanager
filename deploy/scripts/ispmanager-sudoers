@@ -30,5 +30,9 @@ Cmnd_Alias ISPMANAGER_FILES = /usr/bin/cp /home/ispapp/ispmanager/deploy/systemd
 Cmnd_Alias ISPMANAGER_LOGS = /usr/bin/journalctl -u ispmanager-backend *, \
     /usr/bin/journalctl -u postgresql *
 
-ispapp ALL=(root) NOPASSWD: ISPMANAGER_APT, ISPMANAGER_SYSTEMCTL, ISPMANAGER_FILES, ISPMANAGER_LOGS
+# CAP_NET_RAW sobre el binario mactelnet: lo necesita para abrir sockets
+# crudos (MAC-Telnet, último recurso de gestión por MAC) sin correr como root.
+Cmnd_Alias ISPMANAGER_CAPS = /usr/sbin/setcap cap_net_raw+ep /usr/bin/mactelnet
+
+ispapp ALL=(root) NOPASSWD: ISPMANAGER_APT, ISPMANAGER_SYSTEMCTL, ISPMANAGER_FILES, ISPMANAGER_LOGS, ISPMANAGER_CAPS
 ispapp ALL=(postgres) NOPASSWD: /usr/bin/psql

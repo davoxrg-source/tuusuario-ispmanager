@@ -66,14 +66,16 @@ def _format_mac(raw: bytes) -> str:
 def parse_mndp_packet(payload: bytes) -> dict | None:
     """Parsea un paquete MNDP. Devuelve None si no trae al menos una MAC válida.
 
-    Formato: 2 bytes de header (ignorados) + lista de TLV (2 bytes tipo,
-    2 bytes longitud, N bytes valor) hasta el final del payload.
+    Formato (confirmado contra tráfico real de MikroTik, no solo documentación
+    de terceros): 4 bytes de header (2 bytes tipo de paquete + 2 bytes número
+    de secuencia, ninguno de los dos se usa aquí) + lista de TLV (2 bytes
+    tipo, 2 bytes longitud, N bytes valor) hasta el final del payload.
     """
-    if len(payload) < 4:
+    if len(payload) < 8:
         return None
 
     result: dict = {}
-    offset = 2  # los primeros 2 bytes son un header/versión que no usamos
+    offset = 4  # header: 2 bytes tipo + 2 bytes secuencia, no usados
 
     while offset + 4 <= len(payload):
         tlv_type, tlv_len = struct.unpack_from(">HH", payload, offset)

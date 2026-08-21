@@ -89,7 +89,8 @@ encontrándolo aunque su IP cambie o deje de responder:
    por defecto en RouterOS). El endpoint `GET /api/devices/discovered`
    muestra lo que ve ahora mismo — identidad, MAC, IP — para registrar un
    equipo con un clic desde el panel ("Detectados en la red" en la página de
-   Equipos) en vez de escribir la IP a mano.
+   Equipos) en vez de escribir la IP a mano. Validado contra tráfico real
+   (varios Mikrotik RouterOS 7.19–7.24 en la red de este servidor).
 2. **Auto-reparación de IP**: si la IP guardada de un equipo deja de
    responder (tanto por API como por SSH) y el equipo tiene MAC registrada,
    el sistema busca esa MAC en la caché de MNDP; si la encuentra con otra IP,
@@ -99,20 +100,20 @@ encontrándolo aunque su IP cambie o deje de responder:
 3. **MAC-Telnet como último recurso**: si ni la IP guardada ni el
    descubrimiento MNDP funcionan, se intenta alcanzar el equipo directamente
    por su MAC vía MAC-Telnet (el mismo mecanismo que usa Winbox cuando un
-   equipo no tiene IP). Esto tiene requisitos que **no se instalan
-   automáticamente**:
+   equipo no tiene IP). Requisitos ya cubiertos en este servidor:
    - El binario externo [`mactelnet`](https://github.com/haakonnessjoen/MAC-Telnet)
-     instalado en el servidor (paquete del sistema si está disponible, o
-     compilado desde el repo).
+     instalado (`sudo apt-get install mactelnet-client`; ya está en los repos
+     de Ubuntu/Debian).
    - Permisos de socket crudo sobre ese binario:
-     `sudo setcap cap_net_raw+ep /ruta/al/binario/mactelnet`.
+     `sudo setcap cap_net_raw+ep /usr/bin/mactelnet` (verificar con
+     `getcap /usr/bin/mactelnet`).
    - El servidor debe estar en el **mismo segmento físico/VLAN** que el
      Mikrotik — no funciona a través de un router/firewall que no reenvíe
      ese tráfico de capa 2.
 
-   Si el binario no está instalado o falla el permiso, el sistema lo reporta
-   igual que un fallo de SSH (mensaje claro, sin tirar el proceso) — nunca es
-   obligatorio para el resto de la app.
+   En un servidor donde el binario no esté instalado o falle el permiso, el
+   sistema lo reporta igual que un fallo de SSH (mensaje claro, sin tirar el
+   proceso) — nunca es obligatorio para el resto de la app.
 
 **Importante**: tanto el descubrimiento MNDP como MAC-Telnet requieren que
 este servidor esté conectado a la misma red local (LAN/VLAN) que los equipos
