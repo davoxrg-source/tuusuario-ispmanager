@@ -32,7 +32,12 @@ Cmnd_Alias ISPMANAGER_LOGS = /usr/bin/journalctl -u ispmanager-backend *, \
 
 # CAP_NET_RAW sobre el binario mactelnet: lo necesita para abrir sockets
 # crudos (MAC-Telnet, último recurso de gestión por MAC) sin correr como root.
-Cmnd_Alias ISPMANAGER_CAPS = /usr/sbin/setcap cap_net_raw+ep /usr/bin/mactelnet
+# El binario del paquete de Ubuntu (mactelnet-client 0.4.4) truena con
+# segfault en toda conexión real (no soporta la autenticación EC-SRP que
+# exige RouterOS >= 6.43); se compiló una versión propia desde el repo
+# oficial en backend/bin/mactelnet, que necesita el mismo permiso.
+Cmnd_Alias ISPMANAGER_CAPS = /usr/sbin/setcap cap_net_raw+ep /usr/bin/mactelnet, \
+    /usr/sbin/setcap cap_net_raw+ep /home/ispapp/ispmanager/backend/bin/mactelnet
 
 ispapp ALL=(root) NOPASSWD: ISPMANAGER_APT, ISPMANAGER_SYSTEMCTL, ISPMANAGER_FILES, ISPMANAGER_LOGS, ISPMANAGER_CAPS
 ispapp ALL=(postgres) NOPASSWD: /usr/bin/psql

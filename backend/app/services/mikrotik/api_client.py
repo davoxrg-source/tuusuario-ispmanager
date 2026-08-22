@@ -205,6 +205,24 @@ def get_mangle_rules(api: Any) -> list[dict[str, Any]]:
     return list(api("/ip/firewall/mangle/print"))
 
 
+def add_mangle_protect_local_traffic(api: Any, in_interface: str) -> None:
+    """Excluye del balanceo PCC el tráfico destinado al propio equipo
+    (gestión: API/SSH/Winbox/Webfig), sin importar por cuál IP se le
+    administre. Sin esta regla, si la interfaz LAN elegida es la misma por
+    la que se gestiona el equipo, la propia sesión de administración queda
+    marcada y enrutada por una tabla de WAN — y si esa WAN no tiene camino
+    de vuelta, el equipo se vuelve inalcanzable (visto en un incidente real:
+    ver device_service.build_wan_balancing_plan)."""
+    list(
+        api(
+            "/ip/firewall/mangle/add",
+            chain="prerouting",
+            action="accept",
+            **{"in-interface": in_interface, "dst-address-type": "local"},
+        )
+    )
+
+
 def add_mangle_mark_connection_pcc(
     api: Any, in_interface: str, classifier: str, connection_mark: str
 ) -> None:

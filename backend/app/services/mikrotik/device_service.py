@@ -370,6 +370,12 @@ def build_wan_balancing_plan(
     el nombre de la interfaz PPPoE resultante como gateway.
 
     El orden importa y es funcionalmente crítico:
+    -1. Proteger el tráfico de gestión del propio equipo (dst-address-type=local)
+        en la interfaz LAN elegida — SIEMPRE primero, para que nunca quede
+        capturado por las reglas PCC de más abajo (incidente real: si la
+        interfaz LAN también se usa para administrar el equipo, sin esta
+        regla la propia sesión de administración se enruta por una WAN sin
+        camino de vuelta y el equipo se vuelve inalcanzable).
     0. Crear las tablas de ruteo (deben existir antes de referenciarlas).
     1. Aprovisionar la conexión real de cada WAN según su tipo (IP fija,
        cliente DHCP, o cliente PPPoE). Las WAN tipo DHCP quedan resueltas
@@ -390,6 +396,28 @@ def build_wan_balancing_plan(
 
     commands: list[WanCommandResult] = []
     routing_mark_for = {wan.interface: f"to-{wan.interface}" for wan in wans}
+
+    # -1. Excluir SIEMPRE el tráfico de gestión del propio equipo antes de
+    # cualquier otra regla. Sin esto, si la interfaz LAN elegida también se
+    # usa para administrar el equipo (API/SSH/Winbox), esa sesión de
+    # administración queda marcada y enrutada por una tabla de WAN — y si
+    # esa WAN no tiene camino de vuelta, el equipo se vuelve inalcanzable.
+    # Esto pasó de verdad en un incidente real; ver api_client.add_mangle_protect_local_traffic.
+    commands.append(
+        WanCommandResult(
+            description=(
+                f"Proteger tráfico de gestión del propio equipo en {lan_interface} "
+                "(nunca se balancea/enruta por una WAN)"
+            ),
+            path="/ip/firewall/mangle/add",
+            params={
+                "chain": "prerouting",
+                "action": "accept",
+                "in-interface": lan_interface,
+                "dst-address-type": "local",
+            },
+        )
+    )
 
     # 0. Tablas de ruteo (deben existir antes de que dhcp-client/mangle/rutas las referencien).
     for wan in wans:

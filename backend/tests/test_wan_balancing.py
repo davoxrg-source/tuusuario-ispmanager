@@ -47,9 +47,11 @@ def test_build_plan_order_and_content_two_wans_with_public_block():
     plan = build_wan_balancing_plan("bridge-lan", wans, public_blocks)
     paths = [c.path for c in plan]
 
-    # 2 tablas de ruteo, luego 1 regla de bloque público, luego 2x2 reglas PCC,
-    # luego 2 rutas con routing-table, luego 2 rutas de tabla principal, luego 2 NAT.
+    # Protección de tráfico de gestión primero, luego 2 tablas de ruteo, luego
+    # 1 regla de bloque público, luego 2x2 reglas PCC, luego 2 rutas con
+    # routing-table, luego 2 rutas de tabla principal, luego 2 NAT.
     assert paths == [
+        "/ip/firewall/mangle/add",  # proteger tráfico de gestión (SIEMPRE primero)
         "/routing/table/add",
         "/routing/table/add",
         "/ip/firewall/mangle/add",  # bloque público fijo
@@ -65,13 +67,21 @@ def test_build_plan_order_and_content_two_wans_with_public_block():
         "/ip/firewall/nat/add",
     ]
 
+    # La regla de protección va primera de todas y cubre tráfico local.
+    assert plan[0].params["dst-address-type"] == "local"
+    assert plan[0].params["action"] == "accept"
+    assert plan[0].params["in-interface"] == "bridge-lan"
+
     # El bloque público debe ir ANTES de las reglas PCC (para no entrar al hash).
-    public_pin_index = paths.index("/ip/firewall/mangle/add")
+    public_pin_index = next(
+        i for i, c in enumerate(plan) if c.path == "/ip/firewall/mangle/add" and "src-address" in c.params
+    )
     assert plan[public_pin_index].params["src-address"] == "203.0.113.0/28"
     assert plan[public_pin_index].params["new-routing-mark"] == "to-ether1"
 
-    # Las tablas de ruteo se crean antes que cualquier cosa que las referencie.
-    table_names = {plan[0].params["name"], plan[1].params["name"]}
+    # Las tablas de ruteo se crean antes que cualquier cosa que las referencie
+    # (después de la regla de protección, que no depende de ellas).
+    table_names = {plan[1].params["name"], plan[2].params["name"]}
     assert table_names == {"to-ether1", "to-ether2"}
 
     # La ruta de la tabla marcada usa routing-table, no un campo viejo tipo routing-mark.
@@ -216,3 +226,24 @@ def test_build_plan_static_wan_provisions_ip_when_address_given():
 
     assert len(ip_commands) == 1
     assert ip_commands[0].params == {"address": "10.10.1.2/30", "interface": "ether1"}
+
+
+def test_build_plan_always_protects_management_traffic_first():
+    """Regresión directa de un incidente real: si la interfaz LAN también se
+    usa para administrar el equipo, sin esta regla la propia sesión de
+    administración quedaba marcada y enrutada por una WAN sin camino de
+    vuelta, dejando el equipo inalcanzable."""
+    wans = [
+        WanLinkInput(interface="ether1", gateway="10.10.1.1"),
+        WanLinkInput(interface="ether2", gateway="10.10.2.1"),
+    ]
+
+    plan = build_wan_balancing_plan("sfp-sfpplus1", wans)
+
+    assert plan[0].path == "/ip/firewall/mangle/add"
+    assert plan[0].params == {
+        "chain": "prerouting",
+        "action": "accept",
+        "in-interface": "sfp-sfpplus1",
+        "dst-address-type": "local",
+    }

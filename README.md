@@ -100,26 +100,77 @@ encontrándolo aunque su IP cambie o deje de responder:
 3. **MAC-Telnet como último recurso**: si ni la IP guardada ni el
    descubrimiento MNDP funcionan, se intenta alcanzar el equipo directamente
    por su MAC vía MAC-Telnet (el mismo mecanismo que usa Winbox cuando un
-   equipo no tiene IP). Requisitos ya cubiertos en este servidor:
-   - El binario externo [`mactelnet`](https://github.com/haakonnessjoen/MAC-Telnet)
-     instalado (`sudo apt-get install mactelnet-client`; ya está en los repos
-     de Ubuntu/Debian).
-   - Permisos de socket crudo sobre ese binario:
-     `sudo setcap cap_net_raw+ep /usr/bin/mactelnet` (verificar con
-     `getcap /usr/bin/mactelnet`).
-   - El servidor debe estar en el **mismo segmento físico/VLAN** que el
-     Mikrotik — no funciona a través de un router/firewall que no reenvíe
-     ese tráfico de capa 2.
+   equipo no tiene IP).
 
-   En un servidor donde el binario no esté instalado o falle el permiso, el
-   sistema lo reporta igual que un fallo de SSH (mensaje claro, sin tirar el
-   proceso) — nunca es obligatorio para el resto de la app.
+   **No uses el paquete `mactelnet-client` de Ubuntu/Debian** — es la versión
+   0.4.4 (~2011) y no soporta la autenticación EC-SRP que RouterOS exige
+   desde 6.43 en adelante; truena con segfault en cualquier conexión real
+   contra un equipo moderno. Hay que compilar la versión oficial:
+
+   ```bash
+   sudo apt-get install -y autoconf automake libtool pkg-config gettext build-essential git
+   git clone https://github.com/haakonnessjoen/MAC-Telnet.git /tmp/mactelnet-src
+   cd /tmp/mactelnet-src
+   # Este Ubuntu no trae 'autopoint' (parte normal de gettext en otras distros);
+   # sin internacionalización no lo necesitamos, así que se deshabilita:
+   sed -i 's/^AM_GNU_GETTEXT(\[external\])/dnl disabled/' configure.ac
+   sed -i 's/^AM_GNU_GETTEXT_VERSION(\[0.19\])/dnl disabled/' configure.ac
+   sed -i 's#po/Makefile.in##' configure.ac
+   sed -i '/^SUBDIRS = src doc config po/s/ po//' Makefile.am
+   sed -i '/^LDFLAGS += -lintl/d' src/Makefile.am
+   autoreconf -fi
+   ./configure --without-mactelnetd
+   make
+   cp src/mactelnet /home/ispapp/ispmanager/backend/bin/mactelnet
+   sudo setcap cap_net_raw+ep /home/ispapp/ispmanager/backend/bin/mactelnet
+   ```
+
+   `app/services/mikrotik/mactelnet_client.py` usa automáticamente
+   `backend/bin/mactelnet` si existe (y solo cae al binario del PATH del
+   sistema si no). El binario no se versiona en git (`backend/bin/` está en
+   `.gitignore`) — hay que compilarlo una vez por servidor.
+
+   El servidor debe estar en el **mismo segmento físico/VLAN** que el
+   Mikrotik — no funciona a través de un router/firewall que no reenvíe
+   tráfico de capa 2. En un servidor donde el binario no esté disponible o
+   falle el permiso, el sistema lo reporta igual que un fallo de SSH
+   (mensaje claro, sin tirar el proceso) — nunca es obligatorio para el
+   resto de la app.
+
+   Dos bugs más, ya resueltos en `mactelnet_client.py` (encontrados
+   depurando con gdb y capturas de buffer crudo, no son teóricos):
+   - El binario lee `TERM` del entorno y hace `strlen(NULL)` si no está
+     definida (los procesos de systemd no la traen) — se fija explícitamente.
+   - La consola de RouterOS pregunta la posición del cursor (`ESC [ 6n`) y
+     redibuja el prompt con colores ANSI en cada línea; un simple
+     `pexpect.expect()` sobre el prompt cae en falsos positivos contra esos
+     redibujados — se responde la consulta y se drena/limpia el buffer
+     completo en vez de confiar en un único match.
 
 **Importante**: tanto el descubrimiento MNDP como MAC-Telnet requieren que
 este servidor esté conectado a la misma red local (LAN/VLAN) que los equipos
 Mikrotik. Si el backend corre en una red distinta (ej. una nube separada de
 la red del ISP), ninguno de los dos mecanismos va a funcionar — solo quedará
 la gestión por IP.
+
+### Balanceo y failover multi-WAN
+
+Configurable desde el detalle de cada equipo: balanceo PCC entre 2+ WAN para
+tráfico NATeado, con bloques de IP pública (Proxy ARP) fijados de forma
+determinística a su propia WAN — no se balancean, porque un bloque público
+solo es alcanzable por la WAN de su proveedor específico. Cada WAN puede ser
+IP fija, DHCP, o cliente PPPoE.
+
+**Siempre revisa la vista previa antes de aplicar.** Un error en estas reglas
+puede tumbar la salida a internet de todo el equipo, no solo una interfaz —
+esto pasó de verdad una vez: si la interfaz LAN elegida es la misma por la
+que se administra el equipo, las reglas de balanceo capturaban también la
+propia sesión de administración, enrutándola por una WAN sin camino de
+vuelta y dejando el equipo inalcanzable por IP (recuperado por MAC-Telnet).
+Por eso `build_wan_balancing_plan` siempre antepone una regla que excluye el
+tráfico destinado al propio equipo (`dst-address-type=local`) antes de
+cualquier otra cosa — pero sigue siendo buena práctica no mezclar la
+interfaz de gestión con la interfaz de clientes cuando sea posible.
 
 ## Facturación
 
