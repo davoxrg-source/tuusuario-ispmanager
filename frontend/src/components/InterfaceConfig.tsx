@@ -205,13 +205,19 @@ export default function InterfaceConfig({ deviceId }: { deviceId: string }) {
           }}
           className="flex gap-2 pt-2 border-t"
         >
-          <input
+          <select
             required
-            placeholder="Interfaz (ej. ether1)"
             value={ipForm.interface}
             onChange={(e) => setIpForm({ ...ipForm, interface: e.target.value })}
-            className="border rounded px-3 py-2 text-sm flex-1"
-          />
+            className="border rounded px-3 py-2 text-sm flex-1 bg-white"
+          >
+            <option value="">Interfaz...</option>
+            {ifaces.map((iface) => (
+              <option key={iface.id} value={iface.name}>
+                {iface.name}
+              </option>
+            ))}
+          </select>
           <input
             required
             placeholder="IP/CIDR (ej. 192.168.1.1/24)"
@@ -300,20 +306,32 @@ export default function InterfaceConfig({ deviceId }: { deviceId: string }) {
           }}
           className="flex gap-2"
         >
-          <input
+          <select
             required
-            placeholder="Bridge existente"
             value={portForm.bridge}
             onChange={(e) => setPortForm({ ...portForm, bridge: e.target.value })}
-            className="border rounded px-3 py-2 text-sm flex-1"
-          />
-          <input
+            className="border rounded px-3 py-2 text-sm flex-1 bg-white"
+          >
+            <option value="">Bridge existente...</option>
+            {bridges.map((bridge) => (
+              <option key={bridge.id} value={bridge.name}>
+                {bridge.name}
+              </option>
+            ))}
+          </select>
+          <select
             required
-            placeholder="Interfaz a agregar (ej. ether2)"
             value={portForm.interface}
             onChange={(e) => setPortForm({ ...portForm, interface: e.target.value })}
-            className="border rounded px-3 py-2 text-sm flex-1"
-          />
+            className="border rounded px-3 py-2 text-sm flex-1 bg-white"
+          >
+            <option value="">Interfaz a agregar...</option>
+            {ifaces.map((iface) => (
+              <option key={iface.id} value={iface.name}>
+                {iface.name}
+              </option>
+            ))}
+          </select>
           <button
             type="submit"
             disabled={addPortMutation.isPending}
@@ -331,13 +349,19 @@ export default function InterfaceConfig({ deviceId }: { deviceId: string }) {
           Crea de una vez el pool de IPs, el perfil PPP y el servidor PPPoE en la interfaz elegida.
         </p>
         <form onSubmit={handlePppoeSubmit} className="grid grid-cols-2 gap-3">
-          <input
+          <select
             required
-            placeholder="Interfaz (ej. ether1 o bridge-lan)"
             value={pppoeForm.interface}
             onChange={(e) => setPppoeForm({ ...pppoeForm, interface: e.target.value })}
-            className="border rounded px-3 py-2 text-sm"
-          />
+            className="border rounded px-3 py-2 text-sm bg-white"
+          >
+            <option value="">Interfaz...</option>
+            {ifaces.map((iface) => (
+              <option key={iface.id} value={iface.name}>
+                {iface.name}
+              </option>
+            ))}
+          </select>
           <input
             required
             placeholder="Nombre del servicio"

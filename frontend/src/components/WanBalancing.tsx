@@ -7,6 +7,7 @@ import {
   listRoutes,
   previewWanBalancing,
 } from "../api/wanBalancing";
+import { listInterfaces } from "../api/interfaces";
 import type {
   PublicBlockPin,
   WanBalancingInput,
@@ -21,6 +22,11 @@ const emptyBlock: PublicBlockPin = { cidr: "", wan_interface: "" };
 export default function WanBalancing({ deviceId }: { deviceId: string }) {
   const queryClient = useQueryClient();
 
+  const { data: ifaces = [] } = useQuery({
+    queryKey: ["interfaces", deviceId],
+    queryFn: () => listInterfaces(deviceId),
+    retry: false,
+  });
   const { data: routes = [] } = useQuery({
     queryKey: ["routes", deviceId],
     queryFn: () => listRoutes(deviceId),
@@ -128,15 +134,21 @@ export default function WanBalancing({ deviceId }: { deviceId: string }) {
           <label className="block text-xs text-slate-500 mb-1">
             Interfaz/bridge LAN (donde llegan los clientes NATeados)
           </label>
-          <input
-            placeholder="ej. bridge-lan"
+          <select
             value={lanInterface}
             onChange={(e) => {
               setLanInterface(e.target.value);
               setPreviewCommands(null);
             }}
-            className="border rounded px-3 py-2 text-sm w-full max-w-sm"
-          />
+            className="border rounded px-3 py-2 text-sm w-full max-w-sm bg-white"
+          >
+            <option value="">Selecciona una interfaz...</option>
+            {ifaces.map((iface) => (
+              <option key={iface.id} value={iface.name}>
+                {iface.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>
@@ -155,12 +167,18 @@ export default function WanBalancing({ deviceId }: { deviceId: string }) {
           <div className="space-y-2">
             {wans.map((wan, i) => (
               <div key={i} className="flex gap-2">
-                <input
-                  placeholder="Interfaz (ej. ether1)"
+                <select
                   value={wan.interface}
                   onChange={(e) => updateWan(i, { interface: e.target.value })}
-                  className="border rounded px-3 py-2 text-sm flex-1"
-                />
+                  className="border rounded px-3 py-2 text-sm flex-1 bg-white"
+                >
+                  <option value="">Interfaz...</option>
+                  {ifaces.map((iface) => (
+                    <option key={iface.id} value={iface.name}>
+                      {iface.name}
+                    </option>
+                  ))}
+                </select>
                 <input
                   placeholder="Gateway"
                   value={wan.gateway}
@@ -214,12 +232,20 @@ export default function WanBalancing({ deviceId }: { deviceId: string }) {
                   onChange={(e) => updateBlock(i, { cidr: e.target.value })}
                   className="border rounded px-3 py-2 text-sm flex-1"
                 />
-                <input
-                  placeholder="Interfaz WAN a la que va fijo"
+                <select
                   value={block.wan_interface}
                   onChange={(e) => updateBlock(i, { wan_interface: e.target.value })}
-                  className="border rounded px-3 py-2 text-sm flex-1"
-                />
+                  className="border rounded px-3 py-2 text-sm flex-1 bg-white"
+                >
+                  <option value="">WAN a la que va fijo...</option>
+                  {wans
+                    .filter((w) => w.interface)
+                    .map((w) => (
+                      <option key={w.interface} value={w.interface}>
+                        {w.interface}
+                      </option>
+                    ))}
+                </select>
                 <button
                   onClick={() => {
                     setPublicBlocks((prev) => prev.filter((_, idx) => idx !== i));
