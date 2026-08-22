@@ -307,6 +307,58 @@ def remove_nat_rule(api: Any, nat_id: str) -> None:
     list(api("/ip/firewall/nat/remove", **{".id": nat_id}))
 
 
+# --- Aprovisionamiento de conexión WAN (DHCP / PPPoE) ---
+# Verificado contra un CCR2004 real (RouterOS 7.24): dhcp-client acepta
+# apuntar su ruta por defecto a tablas custom vía "default-route-tables"
+# (no "routing-table"); pppoe-client NO tiene ese parámetro — para PPPoE
+# el resto del plan agrega la ruta a mano usando el nombre de la interfaz
+# PPPoE resultante como gateway (es un enlace punto a punto, sin IP de
+# gateway). Ver device_service.build_wan_balancing_plan.
+
+
+def get_dhcp_clients(api: Any) -> list[dict[str, Any]]:
+    return list(api("/ip/dhcp-client/print"))
+
+
+def add_dhcp_client(api: Any, interface: str, routing_tables: list[str]) -> None:
+    list(
+        api(
+            "/ip/dhcp-client/add",
+            interface=interface,
+            **{
+                "add-default-route": "yes",
+                "default-route-tables": ",".join(routing_tables),
+                "disabled": "no",
+            },
+        )
+    )
+
+
+def get_pppoe_clients(api: Any) -> list[dict[str, Any]]:
+    return list(api("/interface/pppoe-client/print"))
+
+
+def add_pppoe_client(
+    api: Any,
+    interface: str,
+    client_name: str,
+    username: str,
+    password: str,
+    service_name: str | None = None,
+) -> None:
+    kwargs: dict[str, Any] = {
+        "interface": interface,
+        "name": client_name,
+        "user": username,
+        "password": password,
+        "add-default-route": "no",
+        "disabled": "no",
+    }
+    if service_name:
+        kwargs["service-name"] = service_name
+    list(api("/interface/pppoe-client/add", **kwargs))
+
+
 def reset_configuration(api: Any, no_defaults: bool = True) -> None:
     """Borra TODA la configuración del equipo y lo reinicia. Con no_defaults=True
     (equivalente a 'no-defaults=yes' en RouterOS) el equipo queda sin bridge, sin

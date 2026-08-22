@@ -117,10 +117,19 @@ export interface PppoeServerSetupInput {
   local_address: string;
 }
 
+export type WanConnectionType = "static" | "dhcp" | "pppoe";
+
 export interface WanLinkInput {
   interface: string;
-  gateway: string;
+  connection_type: WanConnectionType;
   distance: number;
+  // Solo para connection_type === "static"
+  gateway?: string;
+  address?: string;
+  // Solo para connection_type === "pppoe"
+  pppoe_username?: string;
+  pppoe_password?: string;
+  pppoe_service_name?: string;
 }
 
 export interface PublicBlockPin {

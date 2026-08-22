@@ -2,8 +2,10 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   applyWanBalancing,
+  listDhcpClients,
   listMangleRules,
   listNatRules,
+  listPppoeClients,
   listRoutes,
   previewWanBalancing,
 } from "../api/wanBalancing";
@@ -16,8 +18,15 @@ import type {
   WanLinkInput,
 } from "../api/types";
 
-const emptyWan: WanLinkInput = { interface: "", gateway: "", distance: 1 };
+const emptyWan: WanLinkInput = { interface: "", connection_type: "static", gateway: "", distance: 1 };
 const emptyBlock: PublicBlockPin = { cidr: "", wan_interface: "" };
+
+function isWanValid(w: WanLinkInput): boolean {
+  if (!w.interface) return false;
+  if (w.connection_type === "static") return Boolean(w.gateway);
+  if (w.connection_type === "pppoe") return Boolean(w.pppoe_username && w.pppoe_password);
+  return true; // dhcp no necesita más datos
+}
 
 export default function WanBalancing({ deviceId }: { deviceId: string }) {
   const queryClient = useQueryClient();
@@ -40,6 +49,16 @@ export default function WanBalancing({ deviceId }: { deviceId: string }) {
   const { data: natRules = [] } = useQuery({
     queryKey: ["nat-rules", deviceId],
     queryFn: () => listNatRules(deviceId),
+    retry: false,
+  });
+  const { data: dhcpClients = [] } = useQuery({
+    queryKey: ["dhcp-clients", deviceId],
+    queryFn: () => listDhcpClients(deviceId),
+    retry: false,
+  });
+  const { data: pppoeClients = [] } = useQuery({
+    queryKey: ["pppoe-clients", deviceId],
+    queryFn: () => listPppoeClients(deviceId),
     retry: false,
   });
 
@@ -104,6 +123,8 @@ export default function WanBalancing({ deviceId }: { deviceId: string }) {
       queryClient.invalidateQueries({ queryKey: ["routes", deviceId] });
       queryClient.invalidateQueries({ queryKey: ["mangle-rules", deviceId] });
       queryClient.invalidateQueries({ queryKey: ["nat-rules", deviceId] });
+      queryClient.invalidateQueries({ queryKey: ["dhcp-clients", deviceId] });
+      queryClient.invalidateQueries({ queryKey: ["pppoe-clients", deviceId] });
     } catch (err) {
       const message = axiosErrorMessage(err) ?? "No se pudo aplicar la configuración.";
       setError(message);
@@ -126,6 +147,8 @@ export default function WanBalancing({ deviceId }: { deviceId: string }) {
         <StateCard title="Rutas" rows={routes} />
         <StateCard title="Reglas de mangle" rows={mangleRules} />
         <StateCard title="NAT" rows={natRules} />
+        <StateCard title="Clientes DHCP" rows={dhcpClients} />
+        <StateCard title="Clientes PPPoE" rows={pppoeClients} />
       </div>
 
       {/* Formulario */}
@@ -166,42 +189,96 @@ export default function WanBalancing({ deviceId }: { deviceId: string }) {
           </div>
           <div className="space-y-2">
             {wans.map((wan, i) => (
-              <div key={i} className="flex gap-2">
-                <select
-                  value={wan.interface}
-                  onChange={(e) => updateWan(i, { interface: e.target.value })}
-                  className="border rounded px-3 py-2 text-sm flex-1 bg-white"
-                >
-                  <option value="">Interfaz...</option>
-                  {ifaces.map((iface) => (
-                    <option key={iface.id} value={iface.name}>
-                      {iface.name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  placeholder="Gateway"
-                  value={wan.gateway}
-                  onChange={(e) => updateWan(i, { gateway: e.target.value })}
-                  className="border rounded px-3 py-2 text-sm flex-1"
-                />
-                <input
-                  type="number"
-                  placeholder="Distancia"
-                  value={wan.distance}
-                  onChange={(e) => updateWan(i, { distance: Number(e.target.value) })}
-                  className="border rounded px-3 py-2 text-sm w-28"
-                />
-                {wans.length > 2 && (
-                  <button
-                    onClick={() => {
-                      setWans((prev) => prev.filter((_, idx) => idx !== i));
-                      setPreviewCommands(null);
-                    }}
-                    className="text-xs text-red-600 hover:underline"
+              <div key={i} className="border rounded p-2 space-y-2">
+                <div className="flex gap-2">
+                  <select
+                    value={wan.interface}
+                    onChange={(e) => updateWan(i, { interface: e.target.value })}
+                    className="border rounded px-3 py-2 text-sm flex-1 bg-white"
                   >
-                    Quitar
-                  </button>
+                    <option value="">Interfaz...</option>
+                    {ifaces.map((iface) => (
+                      <option key={iface.id} value={iface.name}>
+                        {iface.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={wan.connection_type}
+                    onChange={(e) =>
+                      updateWan(i, { connection_type: e.target.value as WanLinkInput["connection_type"] })
+                    }
+                    className="border rounded px-3 py-2 text-sm w-36 bg-white"
+                  >
+                    <option value="static">IP fija</option>
+                    <option value="dhcp">DHCP</option>
+                    <option value="pppoe">PPPoE</option>
+                  </select>
+                  <input
+                    type="number"
+                    placeholder="Distancia"
+                    value={wan.distance}
+                    onChange={(e) => updateWan(i, { distance: Number(e.target.value) })}
+                    className="border rounded px-3 py-2 text-sm w-24"
+                  />
+                  {wans.length > 2 && (
+                    <button
+                      onClick={() => {
+                        setWans((prev) => prev.filter((_, idx) => idx !== i));
+                        setPreviewCommands(null);
+                      }}
+                      className="text-xs text-red-600 hover:underline whitespace-nowrap"
+                    >
+                      Quitar
+                    </button>
+                  )}
+                </div>
+
+                {wan.connection_type === "static" && (
+                  <div className="flex gap-2">
+                    <input
+                      placeholder="Gateway (ej. 10.10.1.1)"
+                      value={wan.gateway ?? ""}
+                      onChange={(e) => updateWan(i, { gateway: e.target.value })}
+                      className="border rounded px-3 py-2 text-sm flex-1"
+                    />
+                    <input
+                      placeholder="IP/CIDR a asignar (opcional, ej. 10.10.1.2/30)"
+                      value={wan.address ?? ""}
+                      onChange={(e) => updateWan(i, { address: e.target.value })}
+                      className="border rounded px-3 py-2 text-sm flex-1"
+                    />
+                  </div>
+                )}
+
+                {wan.connection_type === "dhcp" && (
+                  <p className="text-xs text-slate-400">
+                    La IP y el gateway se obtienen automáticamente del proveedor por DHCP.
+                  </p>
+                )}
+
+                {wan.connection_type === "pppoe" && (
+                  <div className="flex gap-2">
+                    <input
+                      placeholder="Usuario PPPoE"
+                      value={wan.pppoe_username ?? ""}
+                      onChange={(e) => updateWan(i, { pppoe_username: e.target.value })}
+                      className="border rounded px-3 py-2 text-sm flex-1"
+                    />
+                    <input
+                      type="password"
+                      placeholder="Contraseña PPPoE"
+                      value={wan.pppoe_password ?? ""}
+                      onChange={(e) => updateWan(i, { pppoe_password: e.target.value })}
+                      className="border rounded px-3 py-2 text-sm flex-1"
+                    />
+                    <input
+                      placeholder="Nombre de servicio (opcional)"
+                      value={wan.pppoe_service_name ?? ""}
+                      onChange={(e) => updateWan(i, { pppoe_service_name: e.target.value })}
+                      className="border rounded px-3 py-2 text-sm flex-1"
+                    />
+                  </div>
                 )}
               </div>
             ))}
@@ -266,7 +343,7 @@ export default function WanBalancing({ deviceId }: { deviceId: string }) {
         <div className="flex gap-2 pt-2 border-t">
           <button
             onClick={handlePreview}
-            disabled={loading !== null || !lanInterface || wans.some((w) => !w.interface || !w.gateway)}
+            disabled={loading !== null || !lanInterface || wans.some((w) => !isWanValid(w))}
             className="bg-slate-700 text-white text-sm rounded px-4 py-2 disabled:opacity-50"
           >
             {loading === "preview" ? "Generando..." : "Vista previa"}

@@ -247,6 +247,14 @@ class DeviceService:
         with self._api() as api:
             return api_client.get_nat_rules(api)
 
+    def list_dhcp_clients(self) -> list[dict]:
+        with self._api() as api:
+            return api_client.get_dhcp_clients(api)
+
+    def list_pppoe_clients(self) -> list[dict]:
+        with self._api() as api:
+            return api_client.get_pppoe_clients(api)
+
     def apply_wan_balancing_plan(
         self, plan: list[WanCommandResult], dry_run: bool
     ) -> list[WanCommandResult]:
@@ -355,17 +363,26 @@ def build_wan_balancing_plan(
     Sintaxis verificada contra un CCR2004 real con RouterOS 7.24 (ver
     api_client.py): en RouterOS 7 el ruteo por marca requiere crear primero
     un objeto /routing/table, referenciado luego por nombre tanto desde
-    mangle (new-routing-mark) como desde la ruta (routing-table).
+    mangle (new-routing-mark) como desde la ruta (routing-table). También
+    se verificó que dhcp-client SÍ puede apuntar su ruta a tablas custom
+    (parámetro "default-route-tables"), pero pppoe-client no tiene ese
+    parámetro — para PPPoE el resto del plan agrega la ruta a mano usando
+    el nombre de la interfaz PPPoE resultante como gateway.
 
     El orden importa y es funcionalmente crítico:
     0. Crear las tablas de ruteo (deben existir antes de referenciarlas).
-    1. Fijar cada bloque público a su WAN (antes de las reglas PCC, para que
+    1. Aprovisionar la conexión real de cada WAN según su tipo (IP fija,
+       cliente DHCP, o cliente PPPoE). Las WAN tipo DHCP quedan resueltas
+       aquí mismo (RouterOS les agrega la ruta a la tabla marcada y a la
+       principal automáticamente) y se saltan los pasos 4 y 5.
+    2. Fijar cada bloque público a su WAN (antes de las reglas PCC, para que
        esas conexiones nunca entren al hash de balanceo).
-    2. Reglas PCC de balanceo para el tráfico NATeado, por cada WAN.
-    3. Ruta con routing-table por cada WAN (el "camino" real del tráfico marcado).
-    4. Rutas por defecto en la tabla principal (tráfico del propio router),
-       con distancia creciente para failover.
-    5. NAT masquerade por WAN (solo aplica al tráfico NATeado).
+    3. Reglas PCC de balanceo para el tráfico NATeado, por cada WAN.
+    4. Ruta con routing-table por cada WAN static/pppoe (el "camino" real
+       del tráfico marcado; las WAN dhcp no generan este paso).
+    5. Rutas por defecto en la tabla principal (tráfico del propio router)
+       para WAN static/pppoe, con distancia creciente para failover.
+    6. NAT masquerade por WAN (solo aplica al tráfico NATeado).
     """
     public_blocks = public_blocks or []
     if len(wans) < 2:
@@ -374,6 +391,7 @@ def build_wan_balancing_plan(
     commands: list[WanCommandResult] = []
     routing_mark_for = {wan.interface: f"to-{wan.interface}" for wan in wans}
 
+    # 0. Tablas de ruteo (deben existir antes de que dhcp-client/mangle/rutas las referencien).
     for wan in wans:
         mark = routing_mark_for[wan.interface]
         commands.append(
@@ -383,6 +401,56 @@ def build_wan_balancing_plan(
                 params={"name": mark, "fib": ""},
             )
         )
+
+    # 1. Aprovisionar la conexión real de cada WAN según su tipo. Para DHCP,
+    # RouterOS mismo alimenta la tabla marcada Y la tabla principal en cuanto
+    # obtiene el lease (default-route-tables), así que esa WAN se salta los
+    # pasos 4 y 5 más abajo — dhcp-client ya los cubre.
+    for wan in wans:
+        mark = routing_mark_for[wan.interface]
+        if wan.connection_type == "static":
+            if wan.address:
+                commands.append(
+                    WanCommandResult(
+                        description=f"Asignar IP {wan.address} a {wan.interface}",
+                        path="/ip/address/add",
+                        params={"address": wan.address, "interface": wan.interface},
+                    )
+                )
+        elif wan.connection_type == "dhcp":
+            commands.append(
+                WanCommandResult(
+                    description=(
+                        f"Cliente DHCP en {wan.interface} "
+                        f"(ruta por defecto automática a '{mark}' y a la tabla principal)"
+                    ),
+                    path="/ip/dhcp-client/add",
+                    params={
+                        "interface": wan.interface,
+                        "add-default-route": "yes",
+                        "default-route-tables": f"{mark},main",
+                        "disabled": "no",
+                    },
+                )
+            )
+        elif wan.connection_type == "pppoe":
+            params: dict[str, str] = {
+                "interface": wan.interface,
+                "name": wan.pppoe_client_name,
+                "user": wan.pppoe_username or "",
+                "password": wan.pppoe_password or "",
+                "add-default-route": "no",
+                "disabled": "no",
+            }
+            if wan.pppoe_service_name:
+                params["service-name"] = wan.pppoe_service_name
+            commands.append(
+                WanCommandResult(
+                    description=f"Cliente PPPoE '{wan.pppoe_client_name}' sobre {wan.interface}",
+                    path="/interface/pppoe-client/add",
+                    params=params,
+                )
+            )
 
     for block in public_blocks:
         mark = routing_mark_for.get(block.wan_interface)
@@ -438,30 +506,42 @@ def build_wan_balancing_plan(
             )
         )
 
+    # 4. Ruta de la tabla marcada por WAN. DHCP ya la crea sola (paso 1), así
+    # que se salta aquí. Para PPPoE el "gateway" es el nombre de la interfaz
+    # resultante (punto a punto, sin IP de gateway) y no aplica check-gateway=ping.
     for wan in wans:
+        if wan.connection_type == "dhcp":
+            continue
+        gateway = wan.gateway if wan.connection_type == "static" else wan.pppoe_client_name
+        params = {
+            "gateway": gateway,
+            "routing-table": routing_mark_for[wan.interface],
+            "distance": "1",
+        }
+        if wan.connection_type == "static":
+            params["check-gateway"] = "ping"
         commands.append(
             WanCommandResult(
-                description=f"Ruta de la tabla '{routing_mark_for[wan.interface]}' vía {wan.gateway}",
+                description=f"Ruta de la tabla '{routing_mark_for[wan.interface]}' vía {gateway}",
                 path="/ip/route/add",
-                params={
-                    "gateway": wan.gateway,
-                    "routing-table": routing_mark_for[wan.interface],
-                    "distance": "1",
-                    "check-gateway": "ping",
-                },
+                params=params,
             )
         )
 
+    # 5. Ruta por defecto de la tabla principal (tráfico del propio router),
+    # con distancia creciente para failover. DHCP ya la crea sola (paso 1).
     for wan in wans:
+        if wan.connection_type == "dhcp":
+            continue
+        gateway = wan.gateway if wan.connection_type == "static" else wan.pppoe_client_name
+        params = {"gateway": gateway, "distance": str(wan.distance)}
+        if wan.connection_type == "static":
+            params["check-gateway"] = "ping"
         commands.append(
             WanCommandResult(
-                description=f"Ruta por defecto (tabla principal) vía {wan.gateway}, distancia {wan.distance}",
+                description=f"Ruta por defecto (tabla principal) vía {gateway}, distancia {wan.distance}",
                 path="/ip/route/add",
-                params={
-                    "gateway": wan.gateway,
-                    "distance": str(wan.distance),
-                    "check-gateway": "ping",
-                },
+                params=params,
             )
         )
 

@@ -218,6 +218,24 @@ def list_nat_rules(device_id: uuid.UUID, db: Session = Depends(get_db)) -> list[
         raise _wrap_router_error(exc, "obtener las reglas NAT")
 
 
+@router.get("/{device_id}/dhcp-clients")
+def list_dhcp_clients(device_id: uuid.UUID, db: Session = Depends(get_db)) -> list[dict]:
+    service = _service_for(db, device_id)
+    try:
+        return service.list_dhcp_clients()
+    except Exception as exc:  # noqa: BLE001
+        raise _wrap_router_error(exc, "obtener los clientes DHCP")
+
+
+@router.get("/{device_id}/pppoe-clients")
+def list_pppoe_clients(device_id: uuid.UUID, db: Session = Depends(get_db)) -> list[dict]:
+    service = _service_for(db, device_id)
+    try:
+        return service.list_pppoe_clients()
+    except Exception as exc:  # noqa: BLE001
+        raise _wrap_router_error(exc, "obtener los clientes PPPoE")
+
+
 @router.post(
     "/{device_id}/wan-balancing/preview",
     response_model=WanBalancingResponse,

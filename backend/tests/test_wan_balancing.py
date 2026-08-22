@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 
 import pytest
+from pydantic import ValidationError
 
 from app.models.mikrotik_device import MikrotikDevice
 from app.schemas.wan_balancing import PublicBlockPin, WanLinkInput
@@ -130,3 +131,88 @@ def test_apply_wan_balancing_plan_stops_at_first_error(monkeypatch):
     assert results[0].executed is True
     assert results[1].executed is False
     assert "falla simulada" in results[1].error
+
+
+def test_wan_link_static_without_gateway_is_rejected():
+    with pytest.raises(ValidationError):
+        WanLinkInput(interface="ether1", connection_type="static")
+
+
+def test_wan_link_pppoe_without_credentials_is_rejected():
+    with pytest.raises(ValidationError):
+        WanLinkInput(interface="ether1", connection_type="pppoe")
+
+
+def test_wan_link_dhcp_needs_no_gateway():
+    # No debe fallar: DHCP no requiere gateway ni credenciales.
+    wan = WanLinkInput(interface="ether1", connection_type="dhcp")
+    assert wan.gateway is None
+
+
+def test_build_plan_mixed_connection_types():
+    wans = [
+        WanLinkInput(interface="ether1", connection_type="static", gateway="10.10.1.1", distance=1),
+        WanLinkInput(interface="ether2", connection_type="dhcp", distance=2),
+        WanLinkInput(
+            interface="ether3",
+            connection_type="pppoe",
+            pppoe_username="isp_user",
+            pppoe_password="isp_pass",
+            distance=3,
+        ),
+    ]
+
+    plan = build_wan_balancing_plan("bridge-lan", wans)
+    paths = [c.path for c in plan]
+
+    # Aprovisionamiento: 1 IP estática (ether1 no tiene 'address' así que no
+    # genera comando), 1 dhcp-client, 1 pppoe-client.
+    assert "/ip/dhcp-client/add" in paths
+    assert "/interface/pppoe-client/add" in paths
+
+    dhcp_cmd = next(c for c in plan if c.path == "/ip/dhcp-client/add")
+    assert dhcp_cmd.params["interface"] == "ether2"
+    assert dhcp_cmd.params["default-route-tables"] == "to-ether2,main"
+
+    pppoe_cmd = next(c for c in plan if c.path == "/interface/pppoe-client/add")
+    assert pppoe_cmd.params["name"] == "pppoe-ether3"
+    assert pppoe_cmd.params["user"] == "isp_user"
+    assert pppoe_cmd.params["add-default-route"] == "no"
+
+    # Rutas de tabla marcada: solo ether1 (static) y ether3 (pppoe), NO ether2 (dhcp).
+    marked_routes = [c for c in plan if c.path == "/ip/route/add" and "routing-table" in c.params]
+    marked_interfaces_gateways = {c.params["gateway"] for c in marked_routes}
+    assert marked_interfaces_gateways == {"10.10.1.1", "pppoe-ether3"}
+
+    # La ruta PPPoE no debe llevar check-gateway=ping (es un enlace punto a punto).
+    pppoe_route = next(c for c in marked_routes if c.params["gateway"] == "pppoe-ether3")
+    assert "check-gateway" not in pppoe_route.params
+
+    # La ruta static sí debe llevar check-gateway=ping.
+    static_route = next(c for c in marked_routes if c.params["gateway"] == "10.10.1.1")
+    assert static_route.params["check-gateway"] == "ping"
+
+    # Rutas de tabla principal: mismo criterio, sin ether2.
+    main_routes = [
+        c for c in plan if c.path == "/ip/route/add" and "routing-table" not in c.params
+    ]
+    assert {c.params["gateway"] for c in main_routes} == {"10.10.1.1", "pppoe-ether3"}
+
+    # NAT: las 3 WAN, sin importar el tipo de conexión.
+    nat_out_interfaces = {c.params["out-interface"] for c in plan if c.path == "/ip/firewall/nat/add"}
+    assert nat_out_interfaces == {"ether1", "ether2", "ether3"}
+
+
+def test_build_plan_static_wan_provisions_ip_when_address_given():
+    wans = [
+        WanLinkInput(
+            interface="ether1", connection_type="static", gateway="10.10.1.1", address="10.10.1.2/30"
+        ),
+        WanLinkInput(interface="ether2", connection_type="dhcp"),
+    ]
+
+    plan = build_wan_balancing_plan("bridge-lan", wans)
+    ip_commands = [c for c in plan if c.path == "/ip/address/add"]
+
+    assert len(ip_commands) == 1
+    assert ip_commands[0].params == {"address": "10.10.1.2/30", "interface": "ether1"}
