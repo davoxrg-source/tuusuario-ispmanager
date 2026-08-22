@@ -9,6 +9,7 @@ class PlanBase(BaseModel):
     upload_speed_mbps: int
     price: float
     currency: str = "USD"
+    guaranteed_floor_percent: int = 9
 
 
 class PlanCreate(PlanBase):
@@ -21,6 +22,7 @@ class PlanUpdate(BaseModel):
     upload_speed_mbps: int | None = None
     price: float | None = None
     currency: str | None = None
+    guaranteed_floor_percent: int | None = None
 
 
 class PlanRead(PlanBase):

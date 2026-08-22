@@ -7,6 +7,7 @@ from app.api.deps import get_current_user, require_admin
 from app.core.security import decrypt_secret
 from app.db.session import get_db
 from app.models.mikrotik_device import MikrotikDevice
+from app.models.plan import Plan
 from app.schemas.interface import (
     BridgeCreate,
     BridgePortCreate,
@@ -17,7 +18,9 @@ from app.schemas.interface import (
     IpAddressRead,
     PppoeServerSetupRequest,
 )
+from app.schemas.qos import QosPlanBootstrapRequest, QosPlanBootstrapResponse
 from app.schemas.wan_balancing import WanBalancingRequest, WanBalancingResponse
+from app.services.mikrotik import qos
 from app.services.mikrotik.device_service import DeviceService, build_wan_balancing_plan
 
 router = APIRouter(prefix="/devices", tags=["interfaces"], dependencies=[Depends(get_current_user)])
@@ -273,3 +276,76 @@ def apply_wan_balancing(
     results = service.apply_wan_balancing_plan(plan, dry_run=False)
     all_ok = all(r.executed for r in results) and len(results) == len(plan)
     return WanBalancingResponse(commands=results, applied=all_ok)
+
+
+def _plan_or_404(db: Session, plan_id: uuid.UUID) -> Plan:
+    plan = db.get(Plan, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Plan no encontrado.")
+    return plan
+
+
+def _build_plan_bootstrap(db: Session, plan_id: uuid.UUID, payload: QosPlanBootstrapRequest):
+    plan = _plan_or_404(db, plan_id)
+    return qos.build_plan_bootstrap_plan(
+        plan,
+        lan_interface=payload.lan_interface,
+        wan_interface=payload.wan_interface,
+        priority_tcp_ports=payload.priority_tcp_ports or None,
+        priority_udp_ports=payload.priority_udp_ports or None,
+        realtime_tcp_max_size=payload.realtime_tcp_max_size,
+        realtime_udp_max_size=payload.realtime_udp_max_size,
+    )
+
+
+@router.post(
+    "/{device_id}/qos-plans/{plan_id}/preview",
+    response_model=QosPlanBootstrapResponse,
+)
+def preview_qos_plan_bootstrap(
+    device_id: uuid.UUID,
+    plan_id: uuid.UUID,
+    payload: QosPlanBootstrapRequest,
+    db: Session = Depends(get_db),
+) -> QosPlanBootstrapResponse:
+    """Arma (sin ejecutar nada) toda la infraestructura QoS de UN plan:
+    address-list + PCQ + mangle + queue tree. Se aplica UNA VEZ por plan por
+    equipo, sin importar cuántos clientes tenga — después, cada cliente se
+    aprovisiona con POST /clients/{id}/qos/provision (una sola llamada, no
+    crea ningún objeto nuevo). Ver services/mikrotik/qos.py."""
+    _service_for(db, device_id)
+    plan = _build_plan_bootstrap(db, plan_id, payload)
+    return QosPlanBootstrapResponse(commands=plan, applied=False)
+
+
+@router.post(
+    "/{device_id}/qos-plans/{plan_id}/apply",
+    response_model=QosPlanBootstrapResponse,
+    dependencies=[Depends(require_admin)],
+)
+def apply_qos_plan_bootstrap(
+    device_id: uuid.UUID,
+    plan_id: uuid.UUID,
+    payload: QosPlanBootstrapRequest,
+    db: Session = Depends(get_db),
+) -> QosPlanBootstrapResponse:
+    service = _service_for(db, device_id)
+    plan = _build_plan_bootstrap(db, plan_id, payload)
+    results = service.apply_command_plan(plan, dry_run=False)
+    all_ok = all(r.executed for r in results) and len(results) == len(plan)
+    return QosPlanBootstrapResponse(commands=results, applied=all_ok)
+
+
+@router.delete(
+    "/{device_id}/qos-plans/{plan_id}",
+    status_code=204,
+    dependencies=[Depends(require_admin)],
+)
+def remove_qos_plan_bootstrap(
+    device_id: uuid.UUID, plan_id: uuid.UUID, db: Session = Depends(get_db)
+) -> None:
+    """Desmonta toda la infraestructura QoS del plan (queue tree, PCQ,
+    address-list) — ej. antes de rearmarla con otros parámetros."""
+    service = _service_for(db, device_id)
+    plan = _plan_or_404(db, plan_id)
+    service.remove_plan_qos(plan)

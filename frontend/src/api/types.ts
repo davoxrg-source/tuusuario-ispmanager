@@ -175,6 +175,9 @@ export interface Plan {
   upload_speed_mbps: number;
   price: number;
   currency: string;
+  // % del plan garantizado como piso aunque el enlace esté saturado (ver
+  // services/mikrotik/qos.py en el backend). Puede hacer ráfaga hasta 100%.
+  guaranteed_floor_percent: number;
 }
 
 export type ClientStatus = "active" | "suspended" | "cancelled";
@@ -207,6 +210,23 @@ export interface ClientInput {
 }
 
 export type InvoiceStatus = "pending" | "paid" | "overdue" | "cancelled";
+
+// QoS: infraestructura de shaping de UN plan en UN equipo (address-list +
+// PCQ + mangle + queue tree). Se aplica una sola vez por plan por equipo —
+// no por cliente. Ver services/mikrotik/qos.py en el backend.
+export interface QosPlanBootstrapInput {
+  lan_interface: string;
+  wan_interface: string;
+  priority_tcp_ports: number[];
+  priority_udp_ports: number[];
+  realtime_tcp_max_size: number;
+  realtime_udp_max_size: number;
+}
+
+export interface QosPlanBootstrapResponse {
+  commands: WanCommandResult[];
+  applied: boolean;
+}
 
 export interface Invoice {
   id: string;

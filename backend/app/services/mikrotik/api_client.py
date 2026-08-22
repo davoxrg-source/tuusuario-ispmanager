@@ -377,6 +377,196 @@ def add_pppoe_client(
     list(api("/interface/pppoe-client/add", **kwargs))
 
 
+# --- QoS: marcado de tráfico por nivel (mangle), pools de clientes por plan
+# (address-list) y colas compartidas por plan con PCQ ---
+# Ver app/services/mikrotik/qos.py para el diseño completo. Reemplaza el
+# shaping legacy de wisprosvr01/SequreISP (HFSC en Linux, un árbol de
+# objetos por cliente — la causa real de los crashes de kernel que motivaron
+# este reemplazo).
+#
+# IMPORTANTE — verificado contra un CCR2004 real (RouterOS 7.24, ver
+# tests/test_qos.py y la verificación registrada en la conversación de
+# diseño): `/queue/tree` NO acepta `dst-address`/`src-address` como
+# parámetro ("unknown parameter dst-address") — a diferencia de lo que un
+# primer diseño asumió por analogía con Linux tc. El filtrado por cliente
+# tiene que resolverse en el mangle (address-list) + PCQ (pcq-classifier),
+# nunca en el queue tree directamente. Por eso el diseño es por PLAN, no por
+# cliente: address-list + reglas mangle + PCQ + queue tree se crean UNA VEZ
+# POR PLAN (no por cliente); dar de alta/baja un cliente es agregarlo o
+# sacarlo del address-list de su plan — una sola llamada API, sin crear
+# ningún objeto nuevo.
+
+
+def get_address_lists(api: Any) -> list[dict[str, Any]]:
+    return list(api("/ip/firewall/address-list/print"))
+
+
+def find_address_list_entry_id(api: Any, list_name: str, address: str) -> str | None:
+    for row in get_address_lists(api):
+        if row.get("list") == list_name and row.get("address") == address:
+            return row.get(".id")
+    return None
+
+
+def add_address_list_entry(api: Any, list_name: str, address: str, comment: str | None = None) -> None:
+    params: dict[str, str] = {"list": list_name, "address": address}
+    if comment:
+        params["comment"] = comment
+    list(api("/ip/firewall/address-list/add", **params))
+
+
+def remove_address_list_entry(api: Any, list_name: str, address: str) -> bool:
+    entry_id = find_address_list_entry_id(api, list_name, address)
+    if entry_id is None:
+        return False
+    list(api("/ip/firewall/address-list/remove", **{".id": entry_id}))
+    return True
+
+
+def get_queue_types(api: Any) -> list[dict[str, Any]]:
+    return list(api("/queue/type/print"))
+
+
+def find_queue_type_id_by_name(api: Any, name: str) -> str | None:
+    for row in get_queue_types(api):
+        if row.get("name") == name:
+            return row.get(".id")
+    return None
+
+
+def add_pcq_queue_type(
+    api: Any, name: str, rate_kbps: int, classifier: str, pcq_limit: int = 50
+) -> None:
+    """`classifier` es 'dst-address' (descarga: separa por IP destino, la del
+    cliente) o 'src-address' (subida: separa por IP origen). `rate_kbps` es
+    el techo POR CLIENTE dentro de este pool — normalmente el ceil del plan."""
+    list(
+        api(
+            "/queue/type/add",
+            name=name,
+            kind="pcq",
+            **{
+                "pcq-rate": f"{rate_kbps}k",
+                "pcq-classifier": classifier,
+                "pcq-limit": str(pcq_limit),
+            },
+        )
+    )
+
+
+def remove_queue_type_by_name(api: Any, name: str) -> bool:
+    type_id = find_queue_type_id_by_name(api, name)
+    if type_id is None:
+        return False
+    list(api("/queue/type/remove", **{".id": type_id}))
+    return True
+
+
+def get_mangle_rule_by_comment(api: Any, comment: str) -> dict[str, Any] | None:
+    for row in get_mangle_rules(api):
+        if row.get("comment") == comment:
+            return row
+    return None
+
+
+def add_mangle_mark_connection(
+    api: Any,
+    chain: str,
+    new_connection_mark: str,
+    comment: str,
+    match: dict[str, str] | None = None,
+    connection_mark: str = "no-mark",
+) -> None:
+    """Marca la CONEXIÓN (no cada paquete) la primera vez que matchea — el
+    resto de los paquetes de esa conexión se reconocen después por
+    connection-mark sin volver a evaluar el criterio (packet-size, puerto,
+    etc.), que es lo caro. `match` son condiciones adicionales del chain
+    (protocol, port, packet-size, etc.), tal cual las espera la API."""
+    params: dict[str, str] = {
+        "chain": chain,
+        "connection-mark": connection_mark,
+        "action": "mark-connection",
+        "new-connection-mark": new_connection_mark,
+        "passthrough": "yes",
+        "comment": comment,
+    }
+    params.update(match or {})
+    list(api("/ip/firewall/mangle/add", **params))
+
+
+def add_mangle_mark_packet_from_connection(
+    api: Any, chain: str, connection_mark: str, new_packet_mark: str, comment: str
+) -> None:
+    list(
+        api(
+            "/ip/firewall/mangle/add",
+            chain=chain,
+            **{
+                "connection-mark": connection_mark,
+                "action": "mark-packet",
+                "new-packet-mark": new_packet_mark,
+                "passthrough": "no",
+                "comment": comment,
+            },
+        )
+    )
+
+
+def get_queue_trees(api: Any) -> list[dict[str, Any]]:
+    return list(api("/queue/tree/print"))
+
+
+def find_queue_tree_id_by_name(api: Any, name: str) -> str | None:
+    for row in get_queue_trees(api):
+        if row.get("name") == name:
+            return row.get(".id")
+    return None
+
+
+def add_queue_tree(
+    api: Any,
+    name: str,
+    parent: str,
+    max_limit_kbps: int,
+    packet_mark: str | None = None,
+    queue_type: str | None = None,
+    limit_at_kbps: int | None = None,
+    priority: int = 8,
+) -> None:
+    """`parent` es una interfaz real (nodo raíz) o el nombre de otro queue
+    tree (nodo hijo) — nunca una IP: `/queue/tree` no tiene forma de filtrar
+    por dirección directamente (verificado contra un CCR2004 real, RouterOS
+    7.24: rechaza dst-address/src-address con "unknown parameter"). El
+    filtrado por cliente va en `queue_type` (un /queue/type kind=pcq con
+    pcq-classifier=dst-address o src-address, ver add_pcq_queue_type) y/o en
+    `packet_mark` (puesto en mangle vía address-list, ver qos.py)."""
+    params: dict[str, str] = {
+        "name": name,
+        "parent": parent,
+        "max-limit": f"{max_limit_kbps}k",
+        "priority": str(priority),
+    }
+    if limit_at_kbps is not None:
+        params["limit-at"] = f"{limit_at_kbps}k"
+    if packet_mark:
+        params["packet-mark"] = packet_mark
+    if queue_type:
+        params["queue"] = queue_type
+    list(api("/queue/tree/add", **params))
+
+
+def remove_queue_tree(api: Any, queue_tree_id: str) -> None:
+    list(api("/queue/tree/remove", **{".id": queue_tree_id}))
+
+
+def remove_queue_tree_by_name(api: Any, name: str) -> bool:
+    tree_id = find_queue_tree_id_by_name(api, name)
+    if tree_id is None:
+        return False
+    remove_queue_tree(api, tree_id)
+    return True
+
+
 def reset_configuration(api: Any, no_defaults: bool = True) -> None:
     """Borra TODA la configuración del equipo y lo reinicia. Con no_defaults=True
     (equivalente a 'no-defaults=yes' en RouterOS) el equipo queda sin bridge, sin

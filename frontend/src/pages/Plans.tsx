@@ -8,6 +8,7 @@ const emptyForm: PlanInput = {
   upload_speed_mbps: 5,
   price: 0,
   currency: "USD",
+  guaranteed_floor_percent: 9,
 };
 
 export default function Plans() {
@@ -74,6 +75,21 @@ export default function Plans() {
             onChange={(e) => setForm({ ...form, upload_speed_mbps: Number(e.target.value) })}
             className="border rounded px-3 py-2 text-sm"
           />
+          <div>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              placeholder="Piso garantizado (%)"
+              value={form.guaranteed_floor_percent}
+              onChange={(e) => setForm({ ...form, guaranteed_floor_percent: Number(e.target.value) })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+            <p className="text-xs text-slate-400 mt-1">
+              % del plan que el cliente mantiene garantizado aunque el enlace esté saturado (QoS).
+              Puede hacer ráfaga hasta el 100% cuando hay banda libre.
+            </p>
+          </div>
           <button
             type="submit"
             disabled={createMutation.isPending}
@@ -90,6 +106,7 @@ export default function Plans() {
             <tr>
               <th className="px-4 py-2">Nombre</th>
               <th className="px-4 py-2">Velocidad</th>
+              <th className="px-4 py-2">Piso QoS</th>
               <th className="px-4 py-2">Precio</th>
               <th className="px-4 py-2">Acciones</th>
             </tr>
@@ -101,6 +118,7 @@ export default function Plans() {
                 <td className="px-4 py-2">
                   {plan.download_speed_mbps}/{plan.upload_speed_mbps} Mbps
                 </td>
+                <td className="px-4 py-2">{plan.guaranteed_floor_percent}%</td>
                 <td className="px-4 py-2">
                   {plan.currency} {Number(plan.price).toFixed(2)}
                 </td>
@@ -116,7 +134,7 @@ export default function Plans() {
             ))}
             {plans.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
                   Aún no hay planes.
                 </td>
               </tr>

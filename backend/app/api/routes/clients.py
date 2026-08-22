@@ -4,11 +4,12 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_admin
 from app.core.security import decrypt_secret, encrypt_secret
 from app.db.session import get_db
 from app.models.client import Client, ClientStatus
 from app.models.mikrotik_device import MikrotikDevice
+from app.models.plan import Plan
 from app.schemas.client import ClientCreate, ClientRead, ClientUpdate
 from app.services.mikrotik.device_service import DeviceService
 
@@ -117,3 +118,46 @@ def reactivate_client(client_id: uuid.UUID, db: Session = Depends(get_db)) -> Cl
             except Exception as exc:  # noqa: BLE001
                 logger.warning("No se pudo habilitar el secreto PPPoE en el Mikrotik: %s", exc)
     return client
+
+
+def _client_plan_and_ip(db: Session, client: Client) -> tuple[Plan, str]:
+    if not client.ip_address:
+        raise HTTPException(status_code=400, detail="El cliente no tiene IP asignada.")
+    if client.plan_id is None:
+        raise HTTPException(status_code=400, detail="El cliente no tiene plan asignado.")
+    plan = db.get(Plan, client.plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Plan no encontrado.")
+    return plan, client.ip_address
+
+
+@router.post(
+    "/{client_id}/qos/provision",
+    response_model=ClientRead,
+    dependencies=[Depends(require_admin)],
+)
+def provision_client_qos(client_id: uuid.UUID, db: Session = Depends(get_db)) -> Client:
+    """Agrega la IP del cliente al address-list de su plan — es lo único
+    que hace falta para que empiece a recibir shaping. Requiere que el plan
+    ya tenga su infraestructura QoS aplicada (ver
+    /devices/{id}/qos-plans/{plan_id}/apply en interfaces.py); si no, el
+    cliente queda en la lista pero sin ninguna cola que lo esté mirando."""
+    client = _get_client_or_404(db, client_id)
+    plan, client_ip = _client_plan_and_ip(db, client)
+    service = _device_service_for(db, client)
+    if service is None:
+        raise HTTPException(status_code=400, detail="El cliente no tiene equipo Mikrotik asignado.")
+    service.provision_client_qos_ip(plan, client_ip)
+    return client
+
+
+@router.delete("/{client_id}/qos", status_code=204, dependencies=[Depends(require_admin)])
+def remove_client_qos(client_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
+    """Saca la IP del cliente del address-list de su plan actual (ej. antes
+    de cambiarlo de plan, de IP, o al dar de baja el contrato)."""
+    client = _get_client_or_404(db, client_id)
+    plan, client_ip = _client_plan_and_ip(db, client)
+    service = _device_service_for(db, client)
+    if service is None:
+        raise HTTPException(status_code=400, detail="El cliente no tiene equipo Mikrotik asignado.")
+    service.remove_client_qos_ip(plan, client_ip)

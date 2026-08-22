@@ -7,6 +7,7 @@ import {
   reactivateClient,
   suspendClient,
 } from "../api/clients";
+import { provisionClientQos, removeClientQos } from "../api/qos";
 import { listPlans } from "../api/plans";
 import { listDevices } from "../api/devices";
 import type { ClientInput } from "../api/types";
@@ -52,6 +53,19 @@ export default function Clients() {
   const reactivateMutation = useMutation({
     mutationFn: reactivateClient,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["clients"] }),
+  });
+
+  const provisionQosMutation = useMutation({
+    mutationFn: provisionClientQos,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["clients"] }),
+    onError: (err) =>
+      alert(axiosErrorMessage(err) ?? "No se pudo aplicar el QoS. ¿El plan ya tiene su infraestructura creada en el equipo (pestaña QoS del equipo)?"),
+  });
+
+  const removeQosMutation = useMutation({
+    mutationFn: removeClientQos,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["clients"] }),
+    onError: (err) => alert(axiosErrorMessage(err) ?? "No se pudo quitar el QoS."),
   });
 
   function handleSubmit(e: FormEvent) {
@@ -199,6 +213,25 @@ export default function Clients() {
                   >
                     Eliminar
                   </button>
+                  <button
+                    onClick={() => provisionQosMutation.mutate(client.id)}
+                    disabled={!client.plan_id || !client.ip_address || !client.mikrotik_device_id}
+                    className="text-xs text-blue-600 hover:underline disabled:opacity-40 disabled:no-underline"
+                    title={
+                      !client.plan_id || !client.ip_address || !client.mikrotik_device_id
+                        ? "Necesita plan, IP y equipo asignados"
+                        : "Agrega la IP del cliente al address-list de su plan (requiere que el plan ya tenga su QoS creado en el equipo)"
+                    }
+                  >
+                    Aplicar QoS
+                  </button>
+                  <button
+                    onClick={() => removeQosMutation.mutate(client.id)}
+                    disabled={!client.plan_id || !client.ip_address}
+                    className="text-xs text-slate-500 hover:underline disabled:opacity-40 disabled:no-underline"
+                  >
+                    Quitar QoS
+                  </button>
                 </td>
               </tr>
             ))}
@@ -214,4 +247,16 @@ export default function Clients() {
       </div>
     </div>
   );
+}
+
+function axiosErrorMessage(err: unknown): string | null {
+  if (typeof err === "object" && err !== null && "response" in err) {
+    const response = (err as { response?: { data?: { detail?: unknown } } }).response;
+    const detail = response?.data?.detail;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail) && detail.length > 0 && typeof detail[0]?.msg === "string") {
+      return detail[0].msg;
+    }
+  }
+  return null;
 }

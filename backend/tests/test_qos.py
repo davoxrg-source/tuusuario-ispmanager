@@ -1,0 +1,253 @@
+import uuid
+from contextlib import contextmanager
+
+from app.models.mikrotik_device import MikrotikDevice
+from app.models.plan import Plan
+from app.services.mikrotik import qos
+from app.services.mikrotik.device_service import DeviceService
+
+# NOTA: el diseño de este módulo cambió después de verificarlo contra un
+# CCR2004 real (RouterOS 7.24). Una primera versión asumía, por analogía con
+# Linux tc, que /queue/tree podía filtrar por dst-address/src-address —
+# RouterOS lo rechaza ("unknown parameter dst-address"). Por eso acá no hay
+# ningún test que use esos parámetros: el filtrado por cliente se resuelve
+# con PCQ (pcq-classifier) + address-list, nunca en el queue tree.
+
+
+def _fake_device() -> MikrotikDevice:
+    return MikrotikDevice(
+        name="Router Lab",
+        host="10.0.0.1",
+        api_port=8728,
+        api_use_tls=False,
+        ssh_port=22,
+        username="admin",
+        encrypted_password="unused-in-test",
+    )
+
+
+def _fake_plan(**overrides) -> Plan:
+    defaults = dict(
+        id=uuid.UUID("11111111-2222-3333-4444-555555555555"),
+        name="30MB",
+        download_speed_mbps=30,
+        upload_speed_mbps=10,
+        price=100,
+        guaranteed_floor_percent=9,
+    )
+    defaults.update(overrides)
+    return Plan(**defaults)
+
+
+def test_kbps_for_plan_applies_guaranteed_floor_percent():
+    plan = _fake_plan()
+    ceil_down, ceil_up, floor_down, floor_up = qos.kbps_for_plan(plan)
+    assert (ceil_down, ceil_up) == (30000, 10000)
+    # 9% exacto, igual que el piso observado en el sistema legacy reemplazado.
+    assert (floor_down, floor_up) == (2700, 900)
+
+
+def test_build_plan_bootstrap_creates_pcq_before_queue_tree_and_never_uses_address_on_tree():
+    plan = _fake_plan()
+    commands = qos.build_plan_bootstrap_plan(
+        plan, lan_interface="bridge-lan", wan_interface="ether1-wan"
+    )
+
+    # Los PCQ (uno por dirección) tienen que existir ANTES de que cualquier
+    # queue tree los referencie por nombre.
+    pcq_names = {c.params["name"] for c in commands if c.path == "/queue/type/add"}
+    assert pcq_names == {qos.pcq_type_name(qos.plan_ref(plan), "down"), qos.pcq_type_name(qos.plan_ref(plan), "up")}
+    first_pcq_index = next(i for i, c in enumerate(commands) if c.path == "/queue/type/add")
+    first_tree_index = next(i for i, c in enumerate(commands) if c.path == "/queue/tree/add")
+    assert first_pcq_index < first_tree_index
+
+    # Verificado contra hardware real: /queue/tree NUNCA debe llevar
+    # dst-address/src-address (RouterOS 7.24 lo rechaza).
+    tree_commands = [c for c in commands if c.path == "/queue/tree/add"]
+    assert tree_commands, "debe haber nodos de queue tree"
+    for c in tree_commands:
+        assert "dst-address" not in c.params
+        assert "src-address" not in c.params
+        assert "queue" in c.params  # referencia al PCQ del plan, es lo que separa por cliente
+
+
+def test_build_plan_bootstrap_queue_tree_has_three_tiers_per_direction_with_floor_on_rt_and_prio_only():
+    plan = _fake_plan(download_speed_mbps=20, upload_speed_mbps=20)
+    commands = qos.build_plan_bootstrap_plan(plan, lan_interface="bridge-lan", wan_interface="ether1-wan")
+    tree = {c.params["name"]: c.params for c in commands if c.path == "/queue/tree/add"}
+
+    ref = qos.plan_ref(plan)
+    down_names = {f"isp-{ref}-down-{t}" for t in qos.TIERS}
+    up_names = {f"isp-{ref}-up-{t}" for t in qos.TIERS}
+    assert down_names <= tree.keys()
+    assert up_names <= tree.keys()
+
+    rt = tree[f"isp-{ref}-down-rt"]
+    prio = tree[f"isp-{ref}-down-prio"]
+    bulk = tree[f"isp-{ref}-down-bulk"]
+
+    # rt y prio tienen piso garantizado; bulk no (igual que el legacy, donde
+    # el nivel bulk no tenía una ls plana, solo la curva decoupled + menor prioridad).
+    assert rt["limit-at"] == "1800k"  # 9% de 20000
+    assert prio["limit-at"] == "1800k"
+    assert "limit-at" not in bulk
+
+    # Techo = ceil del plan en los tres.
+    assert rt["max-limit"] == prio["max-limit"] == bulk["max-limit"] == "20000k"
+
+    # Prioridad: tiempo real > prioridad > bulk (1 = más alta en RouterOS).
+    assert int(rt["priority"]) < int(prio["priority"]) < int(bulk["priority"])
+
+    # Cada nodo cuelga directo de la interfaz (no hay padre intermedio por
+    # cliente — eso es justo lo que evita la explosión de objetos del legacy).
+    assert rt["parent"] == prio["parent"] == bulk["parent"] == "bridge-lan"
+
+    # Cada nodo filtra por su propio packet-mark único (plan+nivel).
+    assert rt["packet-mark"] == qos.mark_name(ref, qos.TIER_REALTIME)
+    assert prio["packet-mark"] == qos.mark_name(ref, qos.TIER_PRIORITY)
+    assert bulk["packet-mark"] == qos.mark_name(ref, qos.TIER_BULK)
+
+
+def test_build_plan_bootstrap_mangle_is_scoped_to_this_plans_address_list():
+    plan = _fake_plan()
+    commands = qos.build_plan_bootstrap_plan(plan, lan_interface="bridge-lan", wan_interface="ether1-wan")
+    addr_list = qos.address_list_name(qos.plan_ref(plan))
+
+    mark_connection_rules = [c for c in commands if c.params.get("action") == "mark-connection"]
+    assert mark_connection_rules, "debe haber reglas de marcado"
+    for c in mark_connection_rules:
+        # Cada regla scopea al address-list del plan por un lado u otro
+        # (no sabemos de qué lado sale el primer paquete de la conexión).
+        assert c.params.get("dst-address-list") == addr_list or c.params.get("src-address-list") == addr_list
+
+    marks = {c.params["new-connection-mark"] for c in mark_connection_rules}
+    ref = qos.plan_ref(plan)
+    assert marks == {qos.mark_name(ref, t) for t in qos.TIERS}
+
+    # 3 traducciones connection-mark -> packet-mark, una por nivel.
+    packet_mark_rules = [c for c in commands if c.params.get("action") == "mark-packet"]
+    assert len(packet_mark_rules) == 3
+
+
+def test_build_plan_bootstrap_skips_empty_priority_port_lists():
+    plan = _fake_plan()
+    commands = qos.build_plan_bootstrap_plan(
+        plan, lan_interface="bridge-lan", wan_interface="ether1-wan",
+        priority_tcp_ports=[], priority_udp_ports=[],
+    )
+    port_rules = [c for c in commands if "port" in c.params and c.description.startswith("prioridad: puertos")]
+    assert port_rules == []
+
+
+def test_build_plan_bootstrap_includes_configured_priority_ports():
+    plan = _fake_plan()
+    commands = qos.build_plan_bootstrap_plan(
+        plan, lan_interface="bridge-lan", wan_interface="ether1-wan",
+        priority_tcp_ports=[32400], priority_udp_ports=[],
+    )
+    tcp_rule = next(
+        c for c in commands
+        if c.params.get("protocol") == "tcp" and c.description.startswith("prioridad: puertos")
+    )
+    assert tcp_rule.params["port"] == "32400"
+
+
+def test_plan_object_names_orders_queue_trees_before_queue_types():
+    plan = _fake_plan()
+    names = qos.plan_object_names(plan)
+    ref = qos.plan_ref(plan)
+    assert set(names["queue_trees"]) == {f"isp-{ref}-{d}-{t}" for d in ("down", "up") for t in qos.TIERS}
+    assert set(names["queue_types"]) == {qos.pcq_type_name(ref, "down"), qos.pcq_type_name(ref, "up")}
+    assert names["address_list"] == qos.address_list_name(ref)
+
+
+def test_provision_client_qos_ip_only_touches_address_list(monkeypatch):
+    calls: list[tuple[str, dict]] = []
+
+    class FakeApi:
+        def __call__(self, cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            return iter([])
+
+    @contextmanager
+    def fake_api_connection(**kwargs):
+        yield FakeApi()
+
+    import app.services.mikrotik.device_service as device_service_module
+
+    monkeypatch.setattr(device_service_module.api_client, "api_connection", fake_api_connection)
+
+    plan = _fake_plan()
+    service = DeviceService(_fake_device(), password="unused")
+    service.provision_client_qos_ip(plan, "10.0.0.5")
+
+    # Aprovisionar un cliente es UNA sola llamada -- no crea ningún objeto
+    # nuevo, solo lo agrega al address-list de su plan.
+    assert calls == [
+        (
+            "/ip/firewall/address-list/add",
+            {"list": qos.address_list_name(qos.plan_ref(plan)), "address": "10.0.0.5", "comment": "ispmanager-qos"},
+        )
+    ]
+
+
+def test_ascii_safe_transliterates_accents():
+    # Verificado contra un CCR2004 real: librouteros manda ASCII puro, un
+    # UnicodeEncodeError con "tráfico" tumbaba la regla entera. plan.name
+    # también pasa por acá porque lo escribe el usuario y puede tener tildes.
+    assert qos._ascii_safe("tráfico") == "trafico"
+    assert qos._ascii_safe("Plan Básico Ñandú") == "Plan Basico Nandu"
+    assert qos._ascii_safe("sin acentos") == "sin acentos"
+
+
+def test_build_plan_bootstrap_mangle_comments_are_pure_ascii_even_with_accented_plan_name():
+    plan = _fake_plan(name="Plan Básico 20MB Ñandú")
+    commands = qos.build_plan_bootstrap_plan(plan, lan_interface="bridge-lan", wan_interface="ether1-wan")
+    comments = [c.params["comment"] for c in commands if "comment" in c.params]
+    assert comments, "debe haber reglas con comentario"
+    for comment in comments:
+        comment.encode("ascii")  # no debe tirar UnicodeEncodeError
+
+
+def test_remove_plan_qos_deletes_mangle_before_queue_trees_before_queue_types(monkeypatch):
+    order: list[str] = []
+
+    class FakeApi:
+        def __call__(self, cmd, **kwargs):
+            if cmd == "/ip/firewall/mangle/print":
+                prefix = qos.mangle_comment_prefix(plan)
+                return iter(
+                    [{".id": "*m0", "comment": f"{prefix} tiempo real: SSH"}, {".id": "*m1", "comment": "otra regla, no es del plan"}]
+                )
+            if cmd == "/queue/tree/print":
+                return iter([{".id": f"*t{i}", "name": n} for i, n in enumerate(qos.plan_object_names(plan)["queue_trees"])])
+            if cmd == "/queue/type/print":
+                return iter([{".id": f"*y{i}", "name": n} for i, n in enumerate(qos.plan_object_names(plan)["queue_types"])])
+            if cmd == "/ip/firewall/address-list/print":
+                return iter([{".id": "*a0", "list": qos.plan_object_names(plan)["address_list"], "address": "10.0.0.5"}])
+            if cmd in ("/queue/tree/remove", "/ip/firewall/address-list/remove", "/ip/firewall/mangle/remove"):
+                order.append((cmd, kwargs[".id"]))
+                return iter([])
+            if cmd == "/queue/type/remove":
+                order.append((cmd, kwargs[".id"]))
+                return iter([])
+            raise AssertionError(f"comando no esperado: {cmd}")
+
+    @contextmanager
+    def fake_api_connection(**kwargs):
+        yield FakeApi()
+
+    import app.services.mikrotik.device_service as device_service_module
+
+    monkeypatch.setattr(device_service_module.api_client, "api_connection", fake_api_connection)
+
+    plan = _fake_plan()
+    service = DeviceService(_fake_device(), password="unused")
+    service.remove_plan_qos(plan)
+
+    cmds = [c for c, _ in order]
+    assert cmds.index("/ip/firewall/mangle/remove") < cmds.index("/queue/tree/remove") < cmds.index("/queue/type/remove")
+
+    # Solo se borró la regla mangle que es de este plan, no la ajena.
+    mangle_removed_ids = [i for c, i in order if c == "/ip/firewall/mangle/remove"]
+    assert mangle_removed_ids == ["*m0"]

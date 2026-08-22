@@ -10,6 +10,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.models.mikrotik_device import MikrotikDevice
+from app.models.plan import Plan
 from app.schemas.mikrotik_device import (
     ActivePppSession,
     ConnectionTestResult,
@@ -258,9 +259,16 @@ class DeviceService:
     def apply_wan_balancing_plan(
         self, plan: list[WanCommandResult], dry_run: bool
     ) -> list[WanCommandResult]:
-        """Ejecuta (o simula) el plan generado por build_wan_balancing_plan, en
+        """Ejecuta (o simula) el plan generado por build_wan_balancing_plan."""
+        return self.apply_command_plan(plan, dry_run)
+
+    def apply_command_plan(
+        self, plan: list[WanCommandResult], dry_run: bool
+    ) -> list[WanCommandResult]:
+        """Ejecuta (o simula) una lista de comandos RouterOS (path+params), en
         orden, deteniéndose en el primer error para no dejar una configuración
-        de ruteo a medias sin que quien llama se entere."""
+        a medias sin que quien llama se entere. Genérico: lo usan tanto el
+        balanceo WAN como el QoS por cliente (ver services/mikrotik/qos.py)."""
         if dry_run:
             return [
                 WanCommandResult(description=c.description, path=c.path, params=c.params, executed=False)
@@ -292,6 +300,48 @@ class DeviceService:
                     )
                     break
         return results
+
+    def provision_client_qos_ip(self, plan: Plan, client_ip: str) -> None:
+        """No crea nada nuevo: solo agrega la IP del cliente al address-list
+        de su plan. El bootstrap del plan (build_plan_bootstrap_plan,
+        aplicado aparte y una sola vez) es lo que hace que esa IP empiece a
+        recibir shaping apenas entra a la lista."""
+        from app.services.mikrotik import qos
+
+        addr_list = qos.address_list_name(qos.plan_ref(plan))
+        with self._api() as api:
+            api_client.add_address_list_entry(api, addr_list, client_ip, comment="ispmanager-qos")
+
+    def remove_client_qos_ip(self, plan: Plan, client_ip: str) -> bool:
+        from app.services.mikrotik import qos
+
+        addr_list = qos.address_list_name(qos.plan_ref(plan))
+        with self._api() as api:
+            return api_client.remove_address_list_entry(api, addr_list, client_ip)
+
+    def remove_plan_qos(self, plan: Plan) -> None:
+        """Desmonta toda la infraestructura QoS de un plan (mangle, queue
+        tree, PCQ, entradas de address-list) — ej. antes de rearmarla con
+        otros parámetros. Orden: mangle primero (no depende de nada más),
+        después queue tree, y recién al final queue type — RouterOS no
+        borra un /queue/type todavía referenciado por un nodo de queue
+        tree."""
+        from app.services.mikrotik import qos
+
+        names = qos.plan_object_names(plan)
+        comment_prefix = qos.mangle_comment_prefix(plan)
+        with self._api() as api:
+            for row in api_client.get_mangle_rules(api):
+                if row.get("comment", "").startswith(comment_prefix):
+                    list(api("/ip/firewall/mangle/remove", **{".id": row[".id"]}))
+            for name in names["queue_trees"]:
+                api_client.remove_queue_tree_by_name(api, name)
+            for name in names["queue_types"]:
+                api_client.remove_queue_type_by_name(api, name)
+            addr_list = names["address_list"]
+            for row in api_client.get_address_lists(api):
+                if row.get("list") == addr_list:
+                    list(api("/ip/firewall/address-list/remove", **{".id": row[".id"]}))
 
     def reboot(self) -> None:
         try:

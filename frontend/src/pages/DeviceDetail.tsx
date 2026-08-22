@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { getActiveSessions, getDevice, getDeviceMetrics, getDeviceStatus } from "../api/devices";
 import InterfaceConfig from "../components/InterfaceConfig";
+import QosPlans from "../components/QosPlans";
 import WanBalancing from "../components/WanBalancing";
 
 export default function DeviceDetail() {
@@ -119,6 +120,7 @@ export default function DeviceDetail() {
 
       <InterfaceConfig deviceId={id} />
       <WanBalancing deviceId={id} />
+      <QosPlans deviceId={id} />
     </div>
   );
 }
