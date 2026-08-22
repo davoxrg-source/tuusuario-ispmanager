@@ -31,8 +31,10 @@ class FakeRouterOsApi:
         if cmd == "/interface/print":
             return iter(
                 [
-                    {"name": "ether1", "rx-byte": "1000", "tx-byte": "2000", "running": "true"},
-                    {"name": "ether2", "rx-byte": "500", "tx-byte": "700", "running": "false"},
+                    # librouteros parsea "true"/"false" de RouterOS como bool real de Python,
+                    # confirmado contra un equipo real (ver device_service.get_interfaces_snapshot).
+                    {"name": "ether1", "rx-byte": "1000", "tx-byte": "2000", "running": True},
+                    {"name": "ether2", "rx-byte": "500", "tx-byte": "700", "running": False},
                 ]
             )
         if cmd == "/ppp/secret/print":

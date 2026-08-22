@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 
-from app.api.routes import auth, billing, clients, devices, monitoring, plans
+from app.api.routes import auth, billing, clients, devices, interfaces, monitoring, plans
 from app.core.config import get_settings
 from app.services.mikrotik.discovery import listener as mndp_listener
 from app.workers.poller import poll_devices_forever, run_daily_billing_forever
@@ -52,6 +52,7 @@ app.include_router(plans.router, prefix=api_prefix)
 app.include_router(clients.router, prefix=api_prefix)
 app.include_router(monitoring.router, prefix=api_prefix)
 app.include_router(billing.router, prefix=api_prefix)
+app.include_router(interfaces.router, prefix=api_prefix)
 
 
 @app.get("/api/health")

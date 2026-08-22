@@ -10,6 +10,8 @@ import {
   YAxis,
 } from "recharts";
 import { getActiveSessions, getDevice, getDeviceMetrics, getDeviceStatus } from "../api/devices";
+import InterfaceConfig from "../components/InterfaceConfig";
+import WanBalancing from "../components/WanBalancing";
 
 export default function DeviceDetail() {
   const { deviceId } = useParams<{ deviceId: string }>();
@@ -114,6 +116,9 @@ export default function DeviceDetail() {
           </tbody>
         </table>
       </div>
+
+      <InterfaceConfig deviceId={id} />
+      <WanBalancing deviceId={id} />
     </div>
   );
 }

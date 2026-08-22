@@ -73,6 +73,80 @@ export interface ActivePppSession {
   caller_id: string | null;
 }
 
+export interface RouterInterface {
+  id: string;
+  name: string;
+  type: string;
+  running: boolean;
+  disabled: boolean;
+  mac_address: string | null;
+  mtu: number | null;
+}
+
+export interface IpAddress {
+  id: string;
+  address: string;
+  network: string | null;
+  interface: string;
+  disabled: boolean;
+}
+
+export interface IpAddressInput {
+  interface: string;
+  address: string;
+}
+
+export interface Bridge {
+  id: string;
+  name: string;
+  disabled: boolean;
+}
+
+export interface BridgePort {
+  id: string;
+  interface: string;
+  bridge: string;
+}
+
+export interface PppoeServerSetupInput {
+  interface: string;
+  service_name: string;
+  pool_start: string;
+  pool_end: string;
+  profile_name: string;
+  local_address: string;
+}
+
+export interface WanLinkInput {
+  interface: string;
+  gateway: string;
+  distance: number;
+}
+
+export interface PublicBlockPin {
+  cidr: string;
+  wan_interface: string;
+}
+
+export interface WanBalancingInput {
+  lan_interface: string;
+  wans: WanLinkInput[];
+  public_blocks: PublicBlockPin[];
+}
+
+export interface WanCommandResult {
+  description: string;
+  path: string;
+  params: Record<string, string>;
+  executed: boolean;
+  error: string | null;
+}
+
+export interface WanBalancingResponse {
+  commands: WanCommandResult[];
+  applied: boolean;
+}
+
 export interface DeviceMetric {
   id: string;
   device_id: string;

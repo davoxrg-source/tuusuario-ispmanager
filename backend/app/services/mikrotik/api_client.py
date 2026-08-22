@@ -115,6 +115,198 @@ def reboot(api: Any) -> None:
     list(api("/system/reboot"))
 
 
+def get_ip_addresses(api: Any) -> list[dict[str, Any]]:
+    return list(api("/ip/address/print"))
+
+
+def add_ip_address(api: Any, interface: str, address: str) -> None:
+    list(api("/ip/address/add", address=address, interface=interface))
+
+
+def remove_ip_address(api: Any, address_id: str) -> None:
+    list(api("/ip/address/remove", **{".id": address_id}))
+
+
+def get_bridges(api: Any) -> list[dict[str, Any]]:
+    return list(api("/interface/bridge/print"))
+
+
+def create_bridge(api: Any, name: str) -> None:
+    list(api("/interface/bridge/add", name=name))
+
+
+def remove_bridge(api: Any, bridge_id: str) -> None:
+    list(api("/interface/bridge/remove", **{".id": bridge_id}))
+
+
+def get_bridge_ports(api: Any) -> list[dict[str, Any]]:
+    return list(api("/interface/bridge/port/print"))
+
+
+def add_bridge_port(api: Any, bridge: str, interface: str) -> None:
+    list(api("/interface/bridge/port/add", bridge=bridge, interface=interface))
+
+
+def remove_bridge_port(api: Any, port_id: str) -> None:
+    list(api("/interface/bridge/port/remove", **{".id": port_id}))
+
+
+def setup_pppoe_server(
+    api: Any,
+    interface: str,
+    service_name: str,
+    pool_start: str,
+    pool_end: str,
+    profile_name: str,
+    local_address: str,
+) -> None:
+    """Alta básica de un servidor PPPoE: pool de IPs + perfil PPP + instancia
+    del servidor, en ese orden (cada uno depende del anterior)."""
+    pool_name = f"{profile_name}-pool"
+    list(api("/ip/pool/add", name=pool_name, ranges=f"{pool_start}-{pool_end}"))
+    list(
+        api(
+            "/ppp/profile/add",
+            name=profile_name,
+            **{"local-address": local_address, "remote-address": pool_name},
+        )
+    )
+    list(
+        api(
+            "/interface/pppoe-server/server/add",
+            interface=interface,
+            **{"service-name": service_name, "default-profile": profile_name, "disabled": "no"},
+        )
+    )
+
+
+# --- Balanceo/failover multi-WAN (PCC + routing-table de RouterOS 7.x) ---
+# Sintaxis verificada contra un CCR2004 real (RouterOS 7.24) creando y
+# borrando de inmediato una tabla/ruta/regla de prueba antes de escribir
+# este módulo. En RouterOS 7 el antiguo "routing-mark" de las rutas pasó a
+# llamarse "routing-table" y ahora es un objeto que hay que crear primero
+# con /routing/table/add; el parámetro del lado de mangle (mark-routing)
+# sigue llamándose "new-routing-mark" sin cambios.
+
+
+def get_routing_tables(api: Any) -> list[dict[str, Any]]:
+    return list(api("/routing/table/print"))
+
+
+def create_routing_table(api: Any, name: str) -> None:
+    list(api("/routing/table/add", name=name, fib=""))
+
+
+def remove_routing_table(api: Any, table_id: str) -> None:
+    list(api("/routing/table/remove", **{".id": table_id}))
+
+
+def get_mangle_rules(api: Any) -> list[dict[str, Any]]:
+    return list(api("/ip/firewall/mangle/print"))
+
+
+def add_mangle_mark_connection_pcc(
+    api: Any, in_interface: str, classifier: str, connection_mark: str
+) -> None:
+    list(
+        api(
+            "/ip/firewall/mangle/add",
+            chain="prerouting",
+            **{
+                "in-interface": in_interface,
+                "connection-mark": "no-mark",
+                "per-connection-classifier": classifier,
+                "action": "mark-connection",
+                "new-connection-mark": connection_mark,
+                "passthrough": "yes",
+            },
+        )
+    )
+
+
+def add_mangle_mark_routing_from_connection(
+    api: Any, connection_mark: str, routing_mark: str
+) -> None:
+    list(
+        api(
+            "/ip/firewall/mangle/add",
+            chain="prerouting",
+            **{
+                "connection-mark": connection_mark,
+                "action": "mark-routing",
+                "new-routing-mark": routing_mark,
+                "passthrough": "no",
+            },
+        )
+    )
+
+
+def add_mangle_mark_routing_by_source(api: Any, src_address: str, routing_mark: str) -> None:
+    """Fija de forma determinística un bloque de IP pública a una WAN
+    específica (para clientes con IP pública por Proxy ARP) — se agrega
+    ANTES de las reglas PCC para que esas conexiones nunca entren al hash."""
+    list(
+        api(
+            "/ip/firewall/mangle/add",
+            chain="prerouting",
+            **{
+                "src-address": src_address,
+                "action": "mark-routing",
+                "new-routing-mark": routing_mark,
+                "passthrough": "no",
+            },
+        )
+    )
+
+
+def remove_mangle_rule(api: Any, rule_id: str) -> None:
+    list(api("/ip/firewall/mangle/remove", **{".id": rule_id}))
+
+
+def get_routes(api: Any) -> list[dict[str, Any]]:
+    return list(api("/ip/route/print"))
+
+
+def add_route(
+    api: Any,
+    gateway: str,
+    routing_table: str | None = None,
+    distance: int = 1,
+    check_gateway: str = "ping",
+) -> None:
+    kwargs: dict[str, Any] = {
+        "gateway": gateway,
+        "distance": str(distance),
+        "check-gateway": check_gateway,
+    }
+    if routing_table:
+        kwargs["routing-table"] = routing_table
+    list(api("/ip/route/add", **kwargs))
+
+
+def remove_route(api: Any, route_id: str) -> None:
+    list(api("/ip/route/remove", **{".id": route_id}))
+
+
+def get_nat_rules(api: Any) -> list[dict[str, Any]]:
+    return list(api("/ip/firewall/nat/print"))
+
+
+def add_nat_masquerade(api: Any, out_interface: str) -> None:
+    list(
+        api(
+            "/ip/firewall/nat/add",
+            chain="srcnat",
+            action="masquerade",
+            **{"out-interface": out_interface},
+        )
+    )
+
+
+def remove_nat_rule(api: Any, nat_id: str) -> None:
+    list(api("/ip/firewall/nat/remove", **{".id": nat_id}))
+
+
 def reset_configuration(api: Any, no_defaults: bool = True) -> None:
     """Borra TODA la configuración del equipo y lo reinicia. Con no_defaults=True
     (equivalente a 'no-defaults=yes' en RouterOS) el equipo queda sin bridge, sin
