@@ -7,6 +7,14 @@ reimplementa el protocolo (incluye una negociación criptográfica EC-SRP) desde
 cero: en vez de eso, este módulo se apoya en el binario externo `mactelnet`
 (https://github.com/haakonnessjoen/MAC-Telnet), controlado vía pexpect.
 
+También maneja el cambio de contraseña obligatorio que RouterOS 7 exige en
+el primer login tras un reset de fábrica (`/system reset-configuration`,
+ver `reset_to_factory_defaults` en device_service.py): sin contraseña nueva
+no hay forma de usar la API/SSH normal, así que `set_initial_password()`
+completa ese flujo (el mismo diálogo "Change Password Now" de Winbox, pero
+por consola) antes de que el resto de la app pueda tomar el control del
+equipo por su vía habitual.
+
 Tres problemas reales encontrados y resueltos aquí (no son teóricos — se
 reprodujeron y depuraron con gdb y capturas de buffer crudo contra un equipo
 real durante un incidente de recuperación):
@@ -60,6 +68,7 @@ _LOCAL_BINARY = Path(__file__).resolve().parents[3] / "bin" / "mactelnet"
 
 _PROMPT = r"\[\S+@\S+\]\s*>\s*"
 _LICENSE_PROMPT = "Do you want to see the software license"
+_PASSWORD_CHANGE_PROMPT = "Change your password"
 _DSR_QUERY = r"\x1b\[6n"
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 _PROMPT_PREFIX = re.compile(r"^\[\S+@\S+\]\s*>\s*")
@@ -113,6 +122,78 @@ def _clean_output(raw: str, command: str) -> str:
     return "\n".join(lines)
 
 
+def _respond_to_dsr(child, timeout: float = 5.0) -> None:
+    """RouterOS pregunta la posición del cursor (DSR) y espera respuesta de
+    una terminal real antes de continuar. Puede aparecer más de una vez
+    (ej. en el flujo de cambio de contraseña, que redibuja toda la pantalla)."""
+    import pexpect
+
+    while child.expect([_DSR_QUERY, pexpect.TIMEOUT], timeout=timeout) == 0:
+        child.send("\x1b[24;80R")
+
+
+def _spawn(binary: str, mac_address: str, username: str, password: str, timeout: float):
+    import pexpect
+
+    env = dict(os.environ)
+    env.setdefault("TERM", "xterm")  # o strlen(NULL) truena — ver docstring del módulo.
+
+    return pexpect.spawn(
+        binary,
+        [mac_address, "-u", username, "-p", password, "-t", str(int(timeout))],
+        timeout=timeout,
+        encoding="utf-8",
+        env=env,
+    )
+
+
+def _login(child, timeout: float) -> str:
+    """Lleva la sesión desde la conexión inicial hasta un estado conocido.
+
+    Devuelve "prompt" si llegó al prompt normal de RouterOS, o
+    "password_change" si el equipo exige cambiar la contraseña antes de
+    continuar (ver set_initial_password). Levanta MacTelnetError en
+    cualquier otro caso (login rechazado, timeout, crash del binario)."""
+    import pexpect
+
+    _respond_to_dsr(child)
+
+    index = child.expect(
+        [
+            "Login failed",
+            "Connection timed out",
+            _LICENSE_PROMPT,
+            _PASSWORD_CHANGE_PROMPT,
+            _PROMPT,
+            pexpect.EOF,
+            pexpect.TIMEOUT,
+        ],
+    )
+    if index == 0:
+        raise MacTelnetError("Login MAC-Telnet rechazado (usuario/contraseña incorrectos).")
+    if index == 1:
+        raise MacTelnetError("MAC-Telnet: tiempo de espera agotado (¿el equipo está en la misma red L2?).")
+    if index == 2:
+        child.sendline("n")
+        _respond_to_dsr(child)  # el flujo de cambio de contraseña vuelve a preguntar DSR al redibujar
+        index = child.expect([_PASSWORD_CHANGE_PROMPT, _PROMPT, pexpect.EOF, pexpect.TIMEOUT], timeout=timeout)
+        index += 3  # realinea: 0=password_change->3, 1=_PROMPT->4, 2=EOF->5, 3=TIMEOUT->6
+    if index == 3:
+        return "password_change"
+    if index == 4:
+        return "prompt"
+    if index == 5:
+        child.close()
+        if child.signalstatus is not None:
+            raise MacTelnetError(
+                f"El binario mactelnet terminó de forma anormal "
+                f"(señal {child.signalstatus}, posible crash de esta build), "
+                "no por un problema de la app."
+            )
+        raise MacTelnetError("MAC-Telnet cerró la conexión sin mostrar un prompt reconocible.")
+    raise MacTelnetError("MAC-Telnet no respondió a tiempo esperando un prompt.")
+
+
 def run_command(mac_address: str, username: str, password: str, command: str, timeout: float = 15.0) -> str:
     """Abre una sesión MAC-Telnet, envía un comando y devuelve la salida.
 
@@ -130,51 +211,19 @@ def run_command(mac_address: str, username: str, password: str, command: str, ti
         )
 
     try:
-        import pexpect
+        import pexpect  # noqa: F401
     except ImportError as exc:  # pragma: no cover - depende del entorno
         raise MacTelnetError("El paquete 'pexpect' no está instalado.") from exc
 
-    # TERM debe estar definida o el binario hace strlen(NULL) y truena.
-    env = dict(os.environ)
-    env.setdefault("TERM", "xterm")
-
     child = None
     try:
-        child = pexpect.spawn(
-            binary,
-            [mac_address, "-u", username, "-p", password, "-t", str(int(timeout))],
-            timeout=timeout,
-            encoding="utf-8",
-            env=env,
-        )
-
-        # RouterOS pregunta la posición del cursor (DSR) y espera respuesta
-        # de una terminal real antes de continuar.
-        if child.expect([_DSR_QUERY, pexpect.TIMEOUT], timeout=5) == 0:
-            child.send("\x1b[24;80R")
-
-        index = child.expect(
-            ["Login failed", "Connection timed out", _LICENSE_PROMPT, _PROMPT, pexpect.EOF, pexpect.TIMEOUT],
-        )
-        if index == 0:
-            raise MacTelnetError("Login MAC-Telnet rechazado (usuario/contraseña incorrectos).")
-        if index == 1:
-            raise MacTelnetError("MAC-Telnet: tiempo de espera agotado (¿el equipo está en la misma red L2?).")
-        if index == 2:
-            child.sendline("n")
-            index = child.expect([_PROMPT, pexpect.EOF, pexpect.TIMEOUT], timeout=timeout)
-            index += 3  # realinea con el espacio de índices de arriba: 0=_PROMPT->3, 1=EOF->4, 2=TIMEOUT->5
-        if index == 4:
-            child.close()
-            if child.signalstatus is not None:
-                raise MacTelnetError(
-                    f"El binario mactelnet terminó de forma anormal "
-                    f"(señal {child.signalstatus}, posible crash de esta build), "
-                    "no por un problema de la app."
-                )
-            raise MacTelnetError("MAC-Telnet cerró la conexión sin mostrar un prompt reconocible.")
-        if index == 5:
-            raise MacTelnetError("MAC-Telnet no respondió a tiempo esperando un prompt.")
+        child = _spawn(binary, mac_address, username, password, timeout)
+        state = _login(child, timeout)
+        if state == "password_change":
+            raise MacTelnetError(
+                "El equipo exige cambiar la contraseña antes de aceptar comandos "
+                "(típico tras un reset de fábrica). Usa set_initial_password() primero."
+            )
 
         # Descarta cualquier resto del banner/prompt inicial antes de mandar el comando.
         _drain(child, settle_time=0.3, max_wait=2.0)
@@ -186,6 +235,62 @@ def run_command(mac_address: str, username: str, password: str, command: str, ti
         if isinstance(exc, MacTelnetError):
             raise
         raise MacTelnetError(f"Fallo de MAC-Telnet: {exc}") from exc
+    finally:
+        if child is not None and child.isalive():
+            try:
+                child.sendline("/quit")
+                child.close(force=True)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def set_initial_password(mac_address: str, username: str, old_password: str, new_password: str, timeout: float = 20.0) -> None:
+    """Completa el cambio de contraseña obligatorio que RouterOS 7 exige en
+    el primer login tras un reset de fábrica (mismo diálogo "Change Password
+    Now" de Winbox, hecho por consola). `old_password` normalmente es ""
+    (el usuario admin de fábrica no tiene contraseña).
+
+    Tras esta llamada, `new_password` queda activa y el equipo acepta
+    comandos normales por API/SSH/MAC-Telnet — quien llame debe guardar esa
+    contraseña (cifrada) en el registro del equipo.
+    """
+    binary = _binary_path()
+    if binary is None:
+        raise MacTelnetError(
+            "No hay un binario 'mactelnet' utilizable en este servidor "
+            "(ni en backend/bin/ ni en el PATH)."
+        )
+
+    try:
+        import pexpect
+    except ImportError as exc:  # pragma: no cover - depende del entorno
+        raise MacTelnetError("El paquete 'pexpect' no está instalado.") from exc
+
+    child = None
+    try:
+        child = _spawn(binary, mac_address, username, old_password, timeout)
+        state = _login(child, timeout)
+        if state == "prompt":
+            raise MacTelnetError(
+                "El equipo no está pidiendo cambio de contraseña — ¿ya se completó antes? "
+                "Usa run_command()/get_identity() con la contraseña ya vigente."
+            )
+
+        child.sendline(new_password)
+        _respond_to_dsr(child)
+        idx = child.expect(["retype", "repeat", pexpect.EOF, pexpect.TIMEOUT], timeout=timeout)
+        if idx >= 2:
+            raise MacTelnetError("No se pudo completar el cambio de contraseña (no pidió confirmación).")
+
+        child.sendline(new_password)
+        _respond_to_dsr(child)
+        idx2 = child.expect(["Password changed", _PROMPT, pexpect.EOF, pexpect.TIMEOUT], timeout=timeout)
+        if idx2 >= 2:
+            raise MacTelnetError("No se pudo confirmar el cambio de contraseña (el equipo cortó la sesión).")
+    except Exception as exc:  # noqa: BLE001
+        if isinstance(exc, MacTelnetError):
+            raise
+        raise MacTelnetError(f"Fallo al cambiar la contraseña por MAC-Telnet: {exc}") from exc
     finally:
         if child is not None and child.isalive():
             try:

@@ -147,11 +147,60 @@ encontrándolo aunque su IP cambie o deje de responder:
      redibujados — se responde la consulta y se drena/limpia el buffer
      completo en vez de confiar en un único match.
 
+   `mactelnet_client.set_initial_password()` completa además el cambio de
+   contraseña obligatorio que RouterOS 7 exige en el primer login tras un
+   reset de fábrica (el mismo diálogo "Change Password Now" de Winbox, pero
+   por consola) — ver más abajo, "Recuperar un equipo reseteado a fábrica".
+
 **Importante**: tanto el descubrimiento MNDP como MAC-Telnet requieren que
 este servidor esté conectado a la misma red local (LAN/VLAN) que los equipos
 Mikrotik. Si el backend corre en una red distinta (ej. una nube separada de
 la red del ISP), ninguno de los dos mecanismos va a funcionar — solo quedará
 la gestión por IP.
+
+### Recuperar un equipo reseteado a fábrica
+
+Después de `/system reset-configuration no-defaults=yes` (el botón
+"Restablecer a fábrica" del panel, o hecho a mano), el equipo queda:
+
+1. **Sin ninguna IP asignada** — solo alcanzable por MAC (MNDP lo sigue
+   detectando, anunciándose con IP de origen `0.0.0.0`).
+2. **Con la contraseña del usuario `admin` en blanco**, pero RouterOS 7
+   exige cambiarla en el primer login antes de aceptar cualquier comando —
+   ni la API ni SSH funcionan hasta que esto se complete (es el mismo
+   diálogo "Change Password Now" que muestra Winbox).
+
+Flujo real usado para recuperar un equipo en este estado, sin acceso físico
+ni Winbox, completamente por MAC-Telnet:
+
+```python
+from app.services.mikrotik.mactelnet_client import set_initial_password, get_identity
+
+MAC = "18:FD:74:E6:E9:52"
+set_initial_password(MAC, "admin", old_password="", new_password="una-contraseña-fuerte")
+# a partir de aquí ya acepta comandos normales:
+get_identity(MAC, "admin", "una-contraseña-fuerte")  # -> "CCR2004"
+```
+
+Después, para dejarlo operativo hay que reconfigurar desde cero (no queda
+nada tras el reset): IP de gestión, y al menos una WAN con salida real a
+internet, por ejemplo:
+
+```python
+from app.services.mikrotik.mactelnet_client import run_command
+
+run_command(MAC, "admin", PWD, "/ip address add address=10.100.8.1/21 interface=sfp-sfpplus1")
+run_command(MAC, "admin", PWD, "/ip dhcp-client add interface=ether2 add-default-route=yes disabled=no")
+run_command(MAC, "admin", PWD, "/ip firewall nat add chain=srcnat action=masquerade out-interface=ether2")
+```
+
+En cuanto la IP de gestión responde, el sistema de auto-reparación por MAC
+(ver arriba) actualiza solo el registro del equipo en la base de datos con
+la IP nueva — no hace falta editarlo a mano en el panel.
+
+**Nota:** hoy este flujo se ejecuta a mano (como en el ejemplo de arriba),
+no hay un botón en el panel para "cambiar contraseña inicial" todavía — es
+la pieza que falta si se quiere hacer completamente desde la UI.
 
 ### Balanceo y failover multi-WAN
 
