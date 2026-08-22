@@ -1,9 +1,26 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.models.mikrotik_device import DeviceStatus
+
+# Direcciones que nunca son un destino válido para conectarse a un equipo:
+# 0.0.0.0 en particular suele "funcionar" a nivel de socket porque el propio
+# sistema operativo la resuelve como localhost, lo que hace que el backend
+# termine probando las credenciales del Mikrotik contra sí mismo — un fallo
+# confuso de diagnosticar. Ver services/mikrotik/discovery.py: un equipo
+# anunciándose por MNDP sin IP real en esa interfaz llega con esta dirección.
+_UNROUTABLE_HOSTS = {"0.0.0.0", "255.255.255.255"}
+
+
+def _reject_unroutable_host(value: str | None) -> str | None:
+    if value is not None and value.strip() in _UNROUTABLE_HOSTS:
+        raise ValueError(
+            f"'{value}' no es una dirección válida para conectarse (nunca tiene un equipo real detrás). "
+            "Si el equipo se detectó sin IP real, gestiónalo por su MAC o asígnale una IP primero."
+        )
+    return value
 
 
 class MikrotikDeviceBase(BaseModel):
@@ -20,6 +37,11 @@ class MikrotikDeviceBase(BaseModel):
 class MikrotikDeviceCreate(MikrotikDeviceBase):
     password: str
 
+    # Solo en los esquemas de entrada: un registro existente con un host ya
+    # inválido (ej. guardado antes de esta validación) debe poder seguir
+    # leyéndose/mostrándose sin que la lectura misma falle.
+    _validate_host = field_validator("host")(_reject_unroutable_host)
+
 
 class MikrotikDeviceUpdate(BaseModel):
     name: str | None = None
@@ -31,6 +53,8 @@ class MikrotikDeviceUpdate(BaseModel):
     ssh_port: int | None = None
     username: str | None = None
     password: str | None = None
+
+    _validate_host = field_validator("host")(_reject_unroutable_host)
 
 
 class MikrotikDeviceRead(MikrotikDeviceBase):

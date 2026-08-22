@@ -66,6 +66,8 @@ def run_command(mac_address: str, username: str, password: str, command: str, ti
             timeout=timeout,
             encoding="utf-8",
         )
+        eof_index = len(_PROMPT_MARKERS) + 2
+        timeout_index = eof_index + 1
         index = child.expect(
             ["Login failed", "Connection timed out", *_PROMPT_MARKERS, pexpect.EOF, pexpect.TIMEOUT],
         )
@@ -73,8 +75,21 @@ def run_command(mac_address: str, username: str, password: str, command: str, ti
             raise MacTelnetError("Login MAC-Telnet rechazado (usuario/contraseña incorrectos).")
         if index == 1:
             raise MacTelnetError("MAC-Telnet: tiempo de espera agotado (¿el equipo está en la misma red L2?).")
-        if index >= len(_PROMPT_MARKERS) + 2:
-            raise MacTelnetError("MAC-Telnet no devolvió un prompt reconocible.")
+        if index == eof_index:
+            # El proceso mactelnet terminó antes de mostrar un prompt. Si fue por
+            # una señal (crash/segfault del binario) lo decimos explícitamente,
+            # en vez de un genérico "no reconoció el prompt" que confunde el
+            # diagnóstico (esto se ha visto con mactelnet-client 0.4.4 de Ubuntu).
+            child.close()
+            if child.signalstatus is not None:
+                raise MacTelnetError(
+                    f"El binario '{MACTELNET_BINARY}' terminó de forma anormal "
+                    f"(señal {child.signalstatus}, posible crash/segfault de esta versión del binario), "
+                    "no por un problema de la app."
+                )
+            raise MacTelnetError("MAC-Telnet cerró la conexión sin mostrar un prompt reconocible.")
+        if index == timeout_index:
+            raise MacTelnetError("MAC-Telnet no respondió a tiempo esperando un prompt.")
 
         child.sendline(command)
         child.expect(_PROMPT_MARKERS, timeout=timeout)
@@ -85,7 +100,7 @@ def run_command(mac_address: str, username: str, password: str, command: str, ti
             raise
         raise MacTelnetError(f"Fallo de MAC-Telnet: {exc}") from exc
     finally:
-        if child is not None:
+        if child is not None and child.isalive():
             try:
                 child.sendline("/quit")
                 child.close(force=True)
