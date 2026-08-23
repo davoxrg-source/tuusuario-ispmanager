@@ -1,8 +1,12 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPlan, deletePlan, listPlans, updatePlan, type PlanInput } from "../api/plans";
 import type { Plan } from "../api/types";
 import Field from "../components/Field";
+import SortableHeader from "../components/SortableHeader";
+import { compareNumber, compareText } from "../utils/sort";
+
+type SortField = "name" | "speed" | "floor" | "price";
 
 const emptyForm: PlanInput = {
   name: "",
@@ -19,6 +23,33 @@ export default function Plans() {
   const [form, setForm] = useState<PlanInput>(emptyForm);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ field: SortField; dir: "asc" | "desc" }>({
+    field: "name",
+    dir: "asc",
+  });
+
+  const sortedPlans = useMemo(() => {
+    const compare = (a: Plan, b: Plan): number => {
+      switch (sort.field) {
+        case "speed":
+          return compareNumber(a.download_speed_mbps, b.download_speed_mbps);
+        case "floor":
+          return compareNumber(a.guaranteed_floor_percent, b.guaranteed_floor_percent);
+        case "price":
+          return compareNumber(Number(a.price), Number(b.price));
+        default:
+          return compareText(a.name, b.name);
+      }
+    };
+    const sorted = [...plans].sort(compare);
+    return sort.dir === "asc" ? sorted : sorted.reverse();
+  }, [plans, sort]);
+
+  function toggleSort(field: SortField) {
+    setSort((prev) =>
+      prev.field === field ? { field, dir: prev.dir === "asc" ? "desc" : "asc" } : { field, dir: "asc" },
+    );
+  }
 
   const createMutation = useMutation({
     mutationFn: createPlan,
@@ -145,15 +176,15 @@ export default function Plans() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
-              <th className="px-4 py-2">Nombre</th>
-              <th className="px-4 py-2">Velocidad</th>
-              <th className="px-4 py-2">Piso QoS</th>
-              <th className="px-4 py-2">Precio</th>
+              <SortableHeader field="name" label="Nombre" sort={sort} onClick={toggleSort} />
+              <SortableHeader field="speed" label="Velocidad" sort={sort} onClick={toggleSort} />
+              <SortableHeader field="floor" label="Piso QoS" sort={sort} onClick={toggleSort} />
+              <SortableHeader field="price" label="Precio" sort={sort} onClick={toggleSort} />
               <th className="px-4 py-2">Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {plans.map((plan) => (
+            {sortedPlans.map((plan) => (
               <tr key={plan.id} className="border-t">
                 <td className="px-4 py-2">{plan.name}</td>
                 <td className="px-4 py-2">
