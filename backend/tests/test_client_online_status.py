@@ -46,6 +46,6 @@ def test_arp_read_failure_leaves_existing_status_untouched():
 
     _update_client_online_status(db, device, service)
 
-    # No se tocó nada -- ni siquiera se llegó a consultar la lista de clientes.
-    db.query.assert_not_called()
+    # Si falla la lectura ARP (ej. equipo inalcanzable), no se toca el
+    # estado ya guardado -- ni a "conectado" ni a "desconectado".
     assert client.is_online is True

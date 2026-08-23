@@ -123,6 +123,19 @@ def get_arp_entries(api: Any) -> list[dict[str, Any]]:
     return list(api("/ip/arp/print"))
 
 
+def ping_once(api: Any, address: str) -> None:
+    """Un solo ping desde el propio equipo. No importa si el ping en sí
+    tiene éxito -- lo que interesa es el efecto secundario: fuerza al
+    equipo a reconfirmar (o expirar) la entrada ARP de ese destino, en vez
+    de confiar en una entrada 'stale' que puede quedar en caché mucho
+    después de que el destino real se apagó (ver
+    DeviceService.get_online_ip_set)."""
+    try:
+        list(api("/ping", address=address, count="1"))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def add_ip_address(api: Any, interface: str, address: str) -> None:
     list(api("/ip/address/add", address=address, interface=interface))
 

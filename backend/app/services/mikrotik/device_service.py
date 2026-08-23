@@ -208,15 +208,31 @@ class DeviceService:
         with self._api() as api:
             return api_client.get_ip_addresses(api)
 
-    def get_online_ip_set(self) -> set[str]:
-        """IPs con entrada ARP 'complete' en el equipo ahora mismo -- sin
+    def get_online_ip_set(self, candidate_ips: list[str] | None = None) -> set[str]:
+        """IPs con entrada ARP 'reachable' en el equipo ahora mismo -- sin
         PPPoE, esta es la señal de que el cliente está efectivamente
         conectado (su equipo está respondiendo en la red), no solo que
         tiene una IP asignada en la base. Usado por el poller para
-        actualizar Client.is_online (ver workers/poller.py)."""
+        actualizar Client.is_online (ver workers/poller.py).
+
+        `complete=True` solo no alcanza: una entrada puede quedar en
+        estado 'stale' en caché mucho después de que el equipo real se
+        apagó, si nadie le mandó tráfico para forzar una reconfirmación
+        (bug real, visto en producción -- un cliente de prueba apagado
+        hacía rato seguía apareciendo "Conectado"). Por eso, si se pasan
+        `candidate_ips`, primero se les manda un ping desde el propio
+        equipo -- fuerza a RouterOS a reconfirmar o expirar cada entrada
+        antes de leer la tabla -- y solo se cuentan las que quedan en
+        status='reachable', no cualquier 'stale'/'delay'/'probe'."""
         with self._api() as api:
+            for ip in candidate_ips or []:
+                api_client.ping_once(api, ip)
             entries = api_client.get_arp_entries(api)
-        return {row["address"] for row in entries if row.get("complete") and row.get("address")}
+        return {
+            row["address"]
+            for row in entries
+            if row.get("complete") and row.get("status") == "reachable" and row.get("address")
+        }
 
     def add_ip_address(self, interface: str, address: str) -> None:
         with self._api() as api:

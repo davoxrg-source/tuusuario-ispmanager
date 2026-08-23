@@ -63,17 +63,20 @@ def _check_qos_health(device: MikrotikDevice, service: DeviceService) -> None:
 
 def _update_client_online_status(db: Session, device: MikrotikDevice, service: DeviceService) -> None:
     """Marca online/offline a cada cliente de este equipo según si su IP
-    tiene una entrada ARP 'complete' ahora mismo (ver
+    responde ARP ahora mismo (pinga cada una para forzar una lectura
+    fresca, no una entrada 'stale' en caché -- ver
     DeviceService.get_online_ip_set) -- es conectividad real, distinta del
     `status` administrativo/de facturación del cliente."""
+    clients = db.query(Client).filter(Client.mikrotik_device_id == device.id).all()
+    candidate_ips = [c.ip_address for c in clients if c.ip_address]
+
     try:
-        online_ips = service.get_online_ip_set()
+        online_ips = service.get_online_ip_set(candidate_ips)
     except Exception as exc:  # noqa: BLE001
         logger.warning("No se pudo leer la tabla ARP de %s: %s", device.name, exc)
         return
 
     now = datetime.now(timezone.utc)
-    clients = db.query(Client).filter(Client.mikrotik_device_id == device.id).all()
     for client in clients:
         client.is_online = bool(client.ip_address and client.ip_address in online_ips)
         if client.is_online:
