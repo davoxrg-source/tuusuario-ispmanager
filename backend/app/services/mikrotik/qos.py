@@ -244,14 +244,26 @@ def build_plan_bootstrap_plan(
     # rt y prio tienen limit-at (piso garantizado); bulk no — igual que en
     # el legacy, donde el nivel bulk no tenía un piso plano, solo la curva
     # decoupled de ráfaga corta + prioridad más baja.
+    #
+    # El techo de rt es el PISO (floor_kbps), no el ceil del plan -- bug
+    # real, visto en producción: con max-limit=ceil (igual que prio/bulk),
+    # tráfico que cae en rt por la heurística de paquete chico (fast.com
+    # abre muchas conexiones con segmentos chicos) llegó a acaparar >600kbit
+    # de un plan de 1Mbit, saturando la cola de mayor prioridad consigo
+    # misma y arrastrando con ella los pings reales. El legacy (HFSC) nunca
+    # tuvo este problema porque su nivel rt tampoco tenía `ul`: quedaba
+    # fijo en el piso (rt=ls=9%, sin upper limit) — tráfico real-time
+    # genuino (voz, DNS, ping) nunca necesita más que eso, y así ninguna
+    # mala clasificación puede inundar la cola de más prioridad.
     def add_leaf(direction: str, tier: str, parent_interface: str, ceil_kbps: int, floor_kbps: int, queue_type: str, priority: int) -> None:
         mark = mark_name(ref, tier)
+        max_limit_kbps = floor_kbps if tier == TIER_REALTIME else ceil_kbps
         params: dict[str, str] = {
             "name": f"isp-{ref}-{direction}-{tier}",
             "parent": parent_interface,
             "queue": queue_type,
             "packet-mark": mark,
-            "max-limit": f"{ceil_kbps}k",
+            "max-limit": f"{max_limit_kbps}k",
             "priority": str(priority),
         }
         if tier != TIER_BULK:

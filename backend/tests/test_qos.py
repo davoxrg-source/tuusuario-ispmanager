@@ -119,8 +119,14 @@ def test_build_plan_bootstrap_queue_tree_has_three_tiers_per_direction_with_floo
     assert prio["limit-at"] == "1800k"
     assert "limit-at" not in bulk
 
-    # Techo = ceil del plan en los tres.
-    assert rt["max-limit"] == prio["max-limit"] == bulk["max-limit"] == "20000k"
+    # Techo: prio y bulk llegan al ceil del plan; rt NO -- su techo es el
+    # piso (floor), igual que el legacy (rt=ls=9%, sin `ul`). Si rt pudiera
+    # llegar al ceil, tráfico mal clasificado ahí (paquetes chicos de un
+    # test de velocidad, por ejemplo) puede saturar la cola de mayor
+    # prioridad consigo misma y arrastrar el tráfico real-time genuino
+    # (bug real, visto en producción).
+    assert rt["max-limit"] == "1800k"
+    assert prio["max-limit"] == bulk["max-limit"] == "20000k"
 
     # Prioridad: tiempo real > prioridad > bulk (1 = más alta en RouterOS).
     assert int(rt["priority"]) < int(prio["priority"]) < int(bulk["priority"])
