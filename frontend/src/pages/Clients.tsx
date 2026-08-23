@@ -25,6 +25,9 @@ const emptyForm: ClientInput = {
   plan_id: null,
   mikrotik_device_id: null,
   ip_address: "",
+  public_ip_address: "",
+  public_ip_provider_interface: "",
+  public_ip_lan_interface: "",
 };
 
 export default function Clients() {
@@ -131,6 +134,9 @@ export default function Clients() {
       plan_id: client.plan_id,
       mikrotik_device_id: client.mikrotik_device_id,
       ip_address: client.ip_address ?? "",
+      public_ip_address: client.public_ip_address ?? "",
+      public_ip_provider_interface: client.public_ip_provider_interface ?? "",
+      public_ip_lan_interface: client.public_ip_lan_interface ?? "",
     });
     setEditingId(client.id);
     setShowForm(true);
@@ -206,6 +212,30 @@ export default function Clients() {
             <input
               value={form.ip_address ?? ""}
               onChange={(e) => setForm({ ...form, ip_address: e.target.value })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field label="IP pública (proxy-ARP, opcional)">
+            <input
+              value={form.public_ip_address ?? ""}
+              onChange={(e) => setForm({ ...form, public_ip_address: e.target.value })}
+              placeholder="ej. 190.71.83.43"
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field label="Interfaz del proveedor (bloque público)">
+            <input
+              value={form.public_ip_provider_interface ?? ""}
+              onChange={(e) => setForm({ ...form, public_ip_provider_interface: e.target.value })}
+              placeholder="ej. eth10 / sfp-sfpplus1"
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field label="Interfaz LAN del cliente">
+            <input
+              value={form.public_ip_lan_interface ?? ""}
+              onChange={(e) => setForm({ ...form, public_ip_lan_interface: e.target.value })}
+              placeholder="ej. eth0 / ether2"
               className="border rounded px-3 py-2 text-sm w-full"
             />
           </Field>

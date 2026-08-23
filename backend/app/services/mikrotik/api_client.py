@@ -210,6 +210,78 @@ def get_routing_tables(api: Any) -> list[dict[str, Any]]:
     return list(api("/routing/table/print"))
 
 
+# --- Entrega de IP pública a un cliente vía proxy-ARP (ver
+# services/mikrotik/device_service.provision_client_public_ip) ---
+# Sintaxis verificada contra un CCR2004 real (RouterOS 7.24): el modo
+# proxy-ARP de una interfaz se setea con /interface/ethernet/set
+# arp=proxy-arp (encontrar el .id por nombre primero, no acepta filtrar
+# por "name=" en el set); las rutas /32 y las reglas NAT con
+# "place-before" funcionan tal como las documenta RouterOS, sin sorpresas.
+
+
+def find_ethernet_interface_id(api: Any, name: str) -> str | None:
+    for row in api("/interface/ethernet/print"):
+        if row.get("name") == name:
+            return row.get(".id")
+    return None
+
+
+def get_ethernet_arp_mode(api: Any, name: str) -> str | None:
+    for row in api("/interface/ethernet/print"):
+        if row.get("name") == name:
+            return row.get("arp")
+    return None
+
+
+def set_ethernet_arp_proxy(api: Any, interface_id: str) -> None:
+    list(api("/interface/ethernet/set", **{".id": interface_id, "arp": "proxy-arp"}))
+
+
+def add_public_ip_route(api: Any, public_ip: str, lan_interface: str) -> None:
+    list(api("/ip/route/add", **{"dst-address": f"{public_ip}/32", "gateway": lan_interface}))
+
+
+def remove_public_ip_routes(api: Any, public_ip: str) -> int:
+    removed = 0
+    target = f"{public_ip}/32"
+    for row in api("/ip/route/print"):
+        if row.get("dst-address") == target:
+            list(api("/ip/route/remove", **{".id": row[".id"]}))
+            removed += 1
+    return removed
+
+
+def find_masquerade_rule_id(api: Any, out_interface: str) -> str | None:
+    for row in api("/ip/firewall/nat/print"):
+        if row.get("action") == "masquerade" and row.get("out-interface") == out_interface:
+            return row.get(".id")
+    return None
+
+
+def add_nat_accept_for_source(api: Any, src_address: str, place_before: str | None) -> None:
+    """Excepción de NAT para que el tráfico de una IP pública propia NO se
+    masquerade -- si no se hace esto, srcnat la traduciría a la IP del
+    router como cualquier cliente normal, anulando el propósito de tener
+    IP pública. Se inserta antes de la regla masquerade que la afectaría
+    (si existe); si todavía no hay ninguna, se agrega al final sin más."""
+    params: dict[str, str] = {"chain": "srcnat", "action": "accept", "src-address": f"{src_address}/32"}
+    if place_before:
+        params["place-before"] = place_before
+    list(api("/ip/firewall/nat/add", **params))
+
+
+def remove_public_ip_nat_rules(api: Any, public_ip: str) -> int:
+    # RouterOS normaliza "x.x.x.x/32" a "x.x.x.x" al guardar/leer una regla
+    # NAT (a diferencia de una ruta, que sí conserva el "/32") -- verificado
+    # contra el CCR2004 real al escribir add_nat_accept_for_source.
+    removed = 0
+    for row in api("/ip/firewall/nat/print"):
+        if row.get("src-address") == public_ip:
+            list(api("/ip/firewall/nat/remove", **{".id": row[".id"]}))
+            removed += 1
+    return removed
+
+
 def enable_traffic_flow(api: Any, target_address: str, target_port: int) -> None:
     """Habilita el export NetFlow v5 del equipo hacia el colector de
     ispmanager (ver services/netflow/collector.py). Idempotente: si ya

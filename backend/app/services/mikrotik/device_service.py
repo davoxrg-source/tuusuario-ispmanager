@@ -387,6 +387,43 @@ class DeviceService:
                 if row.get("list") == addr_list:
                     list(api("/ip/firewall/address-list/remove", **{".id": row[".id"]}))
 
+    def enable_proxy_arp(self, provider_interface: str) -> None:
+        """Idempotente: activa arp=proxy-arp en la interfaz que da al
+        proveedor del bloque público, si no lo está ya. Es a nivel de
+        interfaz -- varios clientes pueden compartir el mismo bloque/
+        proveedor sin volver a tocar esto."""
+        with self._api() as api:
+            current = api_client.get_ethernet_arp_mode(api, provider_interface)
+            if current == "proxy-arp":
+                return
+            interface_id = api_client.find_ethernet_interface_id(api, provider_interface)
+            if interface_id is None:
+                raise ValueError(f"Interfaz '{provider_interface}' no encontrada en el equipo.")
+            api_client.set_ethernet_arp_proxy(api, interface_id)
+
+    def provision_client_public_ip(
+        self, public_ip: str, provider_interface: str, lan_interface: str
+    ) -> None:
+        """Entrega una IP pública a un cliente vía proxy-ARP -- reemplaza el
+        procedimiento manual con `arp -Ds` del sistema legacy (ver
+        services/mikrotik/qos.py para el mismo criterio de "una vez por
+        recurso compartido, barato por cliente"). Orden: proxy-ARP en la
+        interfaz del proveedor (idempotente) -> ruta /32 hacia la LAN ->
+        excepción de NAT antes del masquerade de esa interfaz, si existe."""
+        self.enable_proxy_arp(provider_interface)
+        with self._api() as api:
+            api_client.add_public_ip_route(api, public_ip, lan_interface)
+            masquerade_id = api_client.find_masquerade_rule_id(api, provider_interface)
+            api_client.add_nat_accept_for_source(api, public_ip, masquerade_id)
+
+    def remove_client_public_ip(self, public_ip: str) -> None:
+        """Retira la ruta /32 y la excepción de NAT de este cliente -- NO
+        toca arp=proxy-arp de la interfaz, puede haber otros clientes
+        usando el mismo bloque/proveedor."""
+        with self._api() as api:
+            api_client.remove_public_ip_routes(api, public_ip)
+            api_client.remove_public_ip_nat_rules(api, public_ip)
+
     def enable_traffic_flow(self, target_address: str, target_port: int) -> None:
         """Configura el equipo para exportar NetFlow v5 hacia el colector de
         ispmanager. Llamado automáticamente por el poller la primera vez que

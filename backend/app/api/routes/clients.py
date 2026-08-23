@@ -77,6 +77,47 @@ def _sync_client_qos(
                 logger.warning("No se pudo aplicar el QoS al cliente %s: %s", client.id, exc)
 
 
+def _sync_client_public_ip(
+    db: Session,
+    client: Client,
+    old_public_ip: str | None,
+    old_provider_iface: str | None,
+    old_lan_iface: str | None,
+    old_device_id: uuid.UUID | None,
+) -> None:
+    """Mismo criterio que _sync_client_qos: deja la entrega de IP pública
+    por proxy-ARP al día con lo guardado -- retira la anterior si algo
+    cambió, aplica la actual si están los 3 campos + equipo. No toca
+    arp=proxy-arp de la interfaz del proveedor al retirar (puede haber
+    otros clientes usándola, ver DeviceService.remove_client_public_ip)."""
+    target_changed = (
+        client.public_ip_address != old_public_ip
+        or client.public_ip_provider_interface != old_provider_iface
+        or client.public_ip_lan_interface != old_lan_iface
+        or client.mikrotik_device_id != old_device_id
+    )
+    if target_changed and old_public_ip and old_device_id:
+        old_device = db.get(MikrotikDevice, old_device_id)
+        if old_device:
+            try:
+                old_service = DeviceService(old_device, decrypt_secret(old_device.encrypted_password))
+                old_service.remove_client_public_ip(old_public_ip)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("No se pudo retirar la IP pública anterior del cliente %s: %s", client.id, exc)
+
+    if client.public_ip_address and client.public_ip_provider_interface and client.public_ip_lan_interface:
+        service = _device_service_for(db, client)
+        if service:
+            try:
+                service.provision_client_public_ip(
+                    client.public_ip_address,
+                    client.public_ip_provider_interface,
+                    client.public_ip_lan_interface,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("No se pudo aplicar la IP pública al cliente %s: %s", client.id, exc)
+
+
 @router.post("", response_model=ClientRead, status_code=201)
 def create_client(payload: ClientCreate, db: Session = Depends(get_db)) -> Client:
     client = Client(**payload.model_dump())
@@ -84,6 +125,9 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)) -> Clien
     db.commit()
     db.refresh(client)
     _sync_client_qos(db, client, old_plan_id=None, old_ip=None, old_device_id=None)
+    _sync_client_public_ip(
+        db, client, old_public_ip=None, old_provider_iface=None, old_lan_iface=None, old_device_id=None
+    )
     return client
 
 
@@ -103,6 +147,9 @@ def update_client(client_id: uuid.UUID, payload: ClientUpdate, db: Session = Dep
     velocidad anterior (bug real, visto en producción antes de este fix)."""
     client = _get_client_or_404(db, client_id)
     old_plan_id, old_ip, old_device_id = client.plan_id, client.ip_address, client.mikrotik_device_id
+    old_public_ip = client.public_ip_address
+    old_provider_iface = client.public_ip_provider_interface
+    old_lan_iface = client.public_ip_lan_interface
 
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(client, field, value)
@@ -110,6 +157,7 @@ def update_client(client_id: uuid.UUID, payload: ClientUpdate, db: Session = Dep
     db.refresh(client)
 
     _sync_client_qos(db, client, old_plan_id, old_ip, old_device_id)
+    _sync_client_public_ip(db, client, old_public_ip, old_provider_iface, old_lan_iface, old_device_id)
     return client
 
 

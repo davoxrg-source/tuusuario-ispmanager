@@ -192,6 +192,12 @@ export interface Client {
   plan_id: string | null;
   mikrotik_device_id: string | null;
   ip_address: string | null;
+  // IP pública entregada por proxy-ARP (ver DeviceService.provision_client_public_ip
+  // en el backend) -- distinta de ip_address, que es la IP privada de LAN
+  // usada para QoS/suspensión. Los 3 campos van juntos.
+  public_ip_address: string | null;
+  public_ip_provider_interface: string | null;
+  public_ip_lan_interface: string | null;
   status: ClientStatus;
   // Conectividad real (tabla ARP del Mikrotik, actualizada por el poller
   // cada DEVICE_POLL_INTERVAL_SECONDS) -- distinto de `status`, que es el
@@ -209,6 +215,9 @@ export interface ClientInput {
   plan_id?: string | null;
   mikrotik_device_id?: string | null;
   ip_address?: string | null;
+  public_ip_address?: string | null;
+  public_ip_provider_interface?: string | null;
+  public_ip_lan_interface?: string | null;
 }
 
 export type InvoiceStatus = "pending" | "paid" | "overdue" | "cancelled";

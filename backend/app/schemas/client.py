@@ -15,6 +15,12 @@ class ClientBase(BaseModel):
     plan_id: uuid.UUID | None = None
     mikrotik_device_id: uuid.UUID | None = None
     ip_address: str | None = None
+    # IP pública por proxy-ARP (ver DeviceService.provision_client_public_ip)
+    # -- los 3 campos van juntos, sin interfaz de proveedor/LAN no hay dónde
+    # aplicarla.
+    public_ip_address: str | None = None
+    public_ip_provider_interface: str | None = None
+    public_ip_lan_interface: str | None = None
 
 
 class ClientCreate(ClientBase):
@@ -30,6 +36,9 @@ class ClientUpdate(BaseModel):
     plan_id: uuid.UUID | None = None
     mikrotik_device_id: uuid.UUID | None = None
     ip_address: str | None = None
+    public_ip_address: str | None = None
+    public_ip_provider_interface: str | None = None
+    public_ip_lan_interface: str | None = None
 
 
 class ClientRead(ClientBase):

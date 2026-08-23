@@ -36,6 +36,16 @@ class Client(Base, TimestampMixin):
 
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
 
+    # IP pública entregada por proxy-ARP (distinta de ip_address, que es la
+    # IP privada de LAN usada para QoS/suspensión) -- reemplaza el
+    # procedimiento manual con `arp -Ds` del sistema legacy (ver
+    # services/mikrotik/device_service.provision_client_public_ip). Los 3
+    # campos van juntos: sin interfaz de proveedor/LAN no hay dónde aplicar
+    # el proxy-ARP ni la ruta.
+    public_ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    public_ip_provider_interface: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    public_ip_lan_interface: Mapped[str | None] = mapped_column(String(60), nullable=True)
+
     status: Mapped[ClientStatus] = mapped_column(
         pg_enum(ClientStatus, "client_status"), default=ClientStatus.ACTIVE
     )
