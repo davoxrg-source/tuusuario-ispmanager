@@ -1,9 +1,11 @@
 """Tareas en background embebidas en el proceso de uvicorn (sin proceso separado).
 
 - poll_devices_forever: cada DEVICE_POLL_INTERVAL_SECONDS, consulta cada Mikrotik
-  activo, guarda un snapshot en device_metrics, y de paso chequea colas QoS
+  activo, guarda un snapshot en device_metrics, chequea colas QoS
   trabadas (ver services/mikrotik/qos_health.py) -- avisa por log si la
-  misma cola sigue trabada 2 ciclos seguidos.
+  misma cola sigue trabada 2 ciclos seguidos -- y actualiza Client.is_online
+  de cada cliente del equipo según su tabla ARP (conectividad real, no
+  facturación).
 - run_daily_billing_forever: una vez al día, genera facturas del mes, marca
   vencidas y suspende clientes en mora.
 """
@@ -12,13 +14,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.security import decrypt_secret
 from app.db.session import SessionLocal
+from app.models.client import Client
 from app.models.device_metric import DeviceMetric
 from app.models.mikrotik_device import DeviceStatus, MikrotikDevice
 from app.services.billing import invoicing
@@ -53,6 +56,25 @@ def _check_qos_health(device: MikrotikDevice, service: DeviceService) -> None:
             len(confirmed), device.name, ", ".join(sorted(confirmed)),
         )
     _previously_stuck[device_key] = stuck_now
+
+
+def _update_client_online_status(db: Session, device: MikrotikDevice, service: DeviceService) -> None:
+    """Marca online/offline a cada cliente de este equipo según si su IP
+    tiene una entrada ARP 'complete' ahora mismo (ver
+    DeviceService.get_online_ip_set) -- es conectividad real, distinta del
+    `status` administrativo/de facturación del cliente."""
+    try:
+        online_ips = service.get_online_ip_set()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("No se pudo leer la tabla ARP de %s: %s", device.name, exc)
+        return
+
+    now = datetime.now(timezone.utc)
+    clients = db.query(Client).filter(Client.mikrotik_device_id == device.id).all()
+    for client in clients:
+        client.is_online = bool(client.ip_address and client.ip_address in online_ips)
+        if client.is_online:
+            client.last_seen_at = now
 
 
 def _ensure_traffic_flow(device: MikrotikDevice, service: DeviceService) -> None:
@@ -99,6 +121,7 @@ def _poll_device_once(db: Session, device: MikrotikDevice) -> None:
         )
         _check_qos_health(device, service)
         _ensure_traffic_flow(device, service)
+        _update_client_online_status(db, device, service)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Polling falló para dispositivo %s (%s): %s", device.name, device.host, exc)
         device.status = DeviceStatus.OFFLINE

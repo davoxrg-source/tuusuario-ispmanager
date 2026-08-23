@@ -1,7 +1,8 @@
 import enum
 import uuid
+from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -38,6 +39,14 @@ class Client(Base, TimestampMixin):
     status: Mapped[ClientStatus] = mapped_column(
         pg_enum(ClientStatus, "client_status"), default=ClientStatus.ACTIVE
     )
+
+    # Conectividad real (no facturación): ¿su IP tiene una entrada ARP
+    # 'complete' en su Mikrotik ahora mismo? Lo actualiza el poller en cada
+    # ciclo (ver workers/poller.py, DeviceService.get_online_ip_set) --
+    # nunca se setea a mano. Distinto de `status`, que es el estado
+    # administrativo/de facturación del contrato.
+    is_online: Mapped[bool] = mapped_column(default=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # id del contrato en el sistema legacy (sequreisp_production) que este
     # registro reemplaza — cada contrato legacy es un cliente acá (un

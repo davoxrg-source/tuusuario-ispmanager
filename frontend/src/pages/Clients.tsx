@@ -47,6 +47,8 @@ export default function Clients() {
           return planName(client.plan_id);
         case "status":
           return client.status;
+        case "is_online":
+          return client.is_online ? "1" : "0";
         case "ip_address":
           return client.ip_address ?? "";
         default:
@@ -252,6 +254,7 @@ export default function Clients() {
               <SortableHeader field="full_name" label="Nombre" sort={sort} onClick={toggleSort} />
               <SortableHeader field="ip_address" label="IP" sort={sort} onClick={toggleSort} />
               <SortableHeader field="plan" label="Plan" sort={sort} onClick={toggleSort} />
+              <SortableHeader field="is_online" label="Conexión" sort={sort} onClick={toggleSort} />
               <SortableHeader field="status" label="Estado" sort={sort} onClick={toggleSort} />
               <th className="px-4 py-2">Acciones</th>
             </tr>
@@ -265,6 +268,27 @@ export default function Clients() {
                 </td>
                 <td className="px-4 py-2 font-mono text-xs">{client.ip_address ?? "—"}</td>
                 <td className="px-4 py-2">{planName(client.plan_id)}</td>
+                <td className="px-4 py-2">
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
+                      client.is_online
+                        ? "bg-green-100 text-green-700"
+                        : "bg-slate-100 text-slate-500"
+                    }`}
+                    title={
+                      client.last_seen_at
+                        ? `Visto por última vez: ${new Date(client.last_seen_at).toLocaleString()}`
+                        : "Sin datos de conexión todavía"
+                    }
+                  >
+                    <span
+                      className={`inline-block h-1.5 w-1.5 rounded-full ${
+                        client.is_online ? "bg-green-500" : "bg-slate-400"
+                      }`}
+                    />
+                    {client.is_online ? "Conectado" : "Desconectado"}
+                  </span>
+                </td>
                 <td className="px-4 py-2">
                   <span
                     className={`inline-block rounded-full px-2 py-0.5 text-xs ${
@@ -327,7 +351,7 @@ export default function Clients() {
             ))}
             {clients.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
                   Aún no hay clientes.
                 </td>
               </tr>
@@ -339,7 +363,7 @@ export default function Clients() {
   );
 }
 
-type SortField = "full_name" | "ip_address" | "plan" | "status";
+type SortField = "full_name" | "ip_address" | "plan" | "status" | "is_online";
 
 function axiosErrorMessage(err: unknown): string | null {
   if (typeof err === "object" && err !== null && "response" in err) {

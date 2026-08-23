@@ -193,6 +193,11 @@ export interface Client {
   mikrotik_device_id: string | null;
   ip_address: string | null;
   status: ClientStatus;
+  // Conectividad real (tabla ARP del Mikrotik, actualizada por el poller
+  // cada DEVICE_POLL_INTERVAL_SECONDS) -- distinto de `status`, que es el
+  // estado administrativo/de facturación del contrato.
+  is_online: boolean;
+  last_seen_at: string | null;
 }
 
 export interface ClientInput {

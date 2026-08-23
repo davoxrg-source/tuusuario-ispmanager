@@ -119,6 +119,10 @@ def get_ip_addresses(api: Any) -> list[dict[str, Any]]:
     return list(api("/ip/address/print"))
 
 
+def get_arp_entries(api: Any) -> list[dict[str, Any]]:
+    return list(api("/ip/arp/print"))
+
+
 def add_ip_address(api: Any, interface: str, address: str) -> None:
     list(api("/ip/address/add", address=address, interface=interface))
 

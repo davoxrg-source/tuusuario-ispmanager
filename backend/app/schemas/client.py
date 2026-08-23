@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
@@ -36,3 +37,5 @@ class ClientRead(ClientBase):
 
     id: uuid.UUID
     status: ClientStatus
+    is_online: bool
+    last_seen_at: datetime | None = None

@@ -208,6 +208,16 @@ class DeviceService:
         with self._api() as api:
             return api_client.get_ip_addresses(api)
 
+    def get_online_ip_set(self) -> set[str]:
+        """IPs con entrada ARP 'complete' en el equipo ahora mismo -- sin
+        PPPoE, esta es la señal de que el cliente está efectivamente
+        conectado (su equipo está respondiendo en la red), no solo que
+        tiene una IP asignada en la base. Usado por el poller para
+        actualizar Client.is_online (ver workers/poller.py)."""
+        with self._api() as api:
+            entries = api_client.get_arp_entries(api)
+        return {row["address"] for row in entries if row.get("complete") and row.get("address")}
+
     def add_ip_address(self, interface: str, address: str) -> None:
         with self._api() as api:
             api_client.add_ip_address(api, interface, address)
