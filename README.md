@@ -226,12 +226,28 @@ interfaz de gestión con la interfaz de clientes cuando sea posible.
 Una tarea diaria en background:
 1. Genera facturas mensuales para clientes activos con plan asignado.
 2. Marca como vencidas las facturas pendientes tras su `due_date`.
-3. Suspende (en la base de datos y en el Mikrotik, deshabilitando el secreto
-   PPPoE) a los clientes con facturas vencidas más allá del período de gracia
+3. Suspende (en la base de datos y en el Mikrotik, agregando su IP al
+   address-list de bloqueo — ver `services/mikrotik/suspension.py`) a los
+   clientes con facturas vencidas más allá del período de gracia
    (`OVERDUE_GRACE_DAYS` en `app/services/billing/invoicing.py`).
+
+## Backups
+
+`deploy/scripts/backup-db.sh` hace un `pg_dump` comprimido de la base todos
+los días, con retención de 15 días (configurable con
+`ISPMANAGER_BACKUP_RETENTION_DAYS`). Lee la conexión directo de
+`backend/.env`, no hace falta pasarle credenciales.
+
+En una instalación con `install.sh`, queda programado solo vía
+`ispmanager-backup.timer` (systemd, 3am todos los días — ver
+`systemctl list-timers ispmanager-backup.timer`). Los backups quedan en
+`backups/` en la raíz del proyecto por defecto (`ISPMANAGER_BACKUP_DIR` para
+cambiarlo) — **nunca se versionan** (`.gitignore`), tienen PII real de
+clientes.
 
 ## Seguridad de credenciales
 
-Las contraseñas de acceso a los Mikrotik y las contraseñas PPPoE de los
-clientes se cifran en la base de datos con Fernet (`CREDENTIALS_ENCRYPTION_KEY`
-en `.env`). Nunca se guardan en texto plano.
+Las contraseñas de acceso a los Mikrotik se cifran en la base de datos con
+Fernet (`CREDENTIALS_ENCRYPTION_KEY` en `.env`). Nunca se guardan en texto
+plano. Este despliegue no usa PPPoE por cliente (clientes por IP estática) —
+ver `services/mikrotik/suspension.py` para cómo se corta el servicio sin eso.

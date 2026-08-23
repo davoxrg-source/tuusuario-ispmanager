@@ -1,0 +1,10 @@
+[Unit]
+Description=Corre ispmanager-backup.service todos los días a las 3am
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

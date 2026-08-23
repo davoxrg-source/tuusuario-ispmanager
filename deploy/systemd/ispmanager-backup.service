@@ -1,0 +1,10 @@
+[Unit]
+Description=ISP Manager - backup diario de la base de datos
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=ispapp
+Group=ispapp
+WorkingDirectory=/home/ispapp/ispmanager
+ExecStart=/bin/bash /home/ispapp/ispmanager/deploy/scripts/backup-db.sh

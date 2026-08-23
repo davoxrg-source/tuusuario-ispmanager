@@ -44,11 +44,15 @@ npm run build
 
 echo "== 6/6: Servicio systemd =="
 sudo cp "$PROJECT_ROOT/deploy/systemd/ispmanager-backend.service" /etc/systemd/system/
+sudo cp "$PROJECT_ROOT/deploy/systemd/ispmanager-backup.service" /etc/systemd/system/
+sudo cp "$PROJECT_ROOT/deploy/systemd/ispmanager-backup.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now ispmanager-backend
+sudo systemctl enable --now ispmanager-backup.timer
 
 echo
 echo "Listo. Verifica con: systemctl status ispmanager-backend"
+echo "Backup diario de la base (3am) programado -- ver: systemctl list-timers ispmanager-backup.timer"
 echo "Crea el primer usuario admin con:"
 echo "  cd $BACKEND_DIR && source .venv/bin/activate && python -m app.cli.seed_admin admin@example.com \"Nombre\" \"contraseña-segura\""
 echo "Panel disponible en http://<IP-del-servidor>:8000"

@@ -7,6 +7,9 @@ backend/.pytest_cache/
 backend/bin/
 *.pyc
 
+# Backups locales de la base (contienen PII real de clientes -- nunca al repo)
+/backups/
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
