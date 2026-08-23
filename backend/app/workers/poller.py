@@ -23,6 +23,7 @@ from app.models.device_metric import DeviceMetric
 from app.models.mikrotik_device import DeviceStatus, MikrotikDevice
 from app.services.billing import invoicing
 from app.services.mikrotik.device_service import DeviceService
+from app.services.netflow.collector import purge_old_buckets
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,20 @@ def _check_qos_health(device: MikrotikDevice, service: DeviceService) -> None:
     _previously_stuck[device_key] = stuck_now
 
 
+def _ensure_traffic_flow(device: MikrotikDevice, service: DeviceService) -> None:
+    """Auto-configura el export NetFlow del equipo hacia este backend, una
+    sola vez por equipo (ver MikrotikDevice.traffic_flow_configured) -- el
+    operador no tiene que entrar manualmente a Winbox a habilitarlo."""
+    settings = get_settings()
+    if not settings.netflow_public_host or device.traffic_flow_configured:
+        return
+    try:
+        service.enable_traffic_flow(settings.netflow_public_host, settings.netflow_collector_port)
+        device.traffic_flow_configured = True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("No se pudo habilitar traffic-flow en %s: %s", device.name, exc)
+
+
 def _poll_device_once(db: Session, device: MikrotikDevice) -> None:
     password = decrypt_secret(device.encrypted_password)
     service = DeviceService(device, password)
@@ -83,6 +98,7 @@ def _poll_device_once(db: Session, device: MikrotikDevice) -> None:
             )
         )
         _check_qos_health(device, service)
+        _ensure_traffic_flow(device, service)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Polling falló para dispositivo %s (%s): %s", device.name, device.host, exc)
         device.status = DeviceStatus.OFFLINE
@@ -132,4 +148,24 @@ async def run_daily_billing_forever() -> None:
             await asyncio.to_thread(_run_daily_billing)
         except Exception:  # noqa: BLE001
             logger.exception("Job diario de facturación falló.")
+        await asyncio.sleep(DAY_SECONDS)
+
+
+def _run_traffic_maintenance() -> None:
+    db = SessionLocal()
+    try:
+        settings = get_settings()
+        deleted = purge_old_buckets(db, older_than_days=settings.netflow_retention_days)
+        if deleted:
+            logger.info("Purga de uso de tráfico: %d buckets viejos eliminados.", deleted)
+    finally:
+        db.close()
+
+
+async def run_traffic_maintenance_forever() -> None:
+    while True:
+        try:
+            await asyncio.to_thread(_run_traffic_maintenance)
+        except Exception:  # noqa: BLE001
+            logger.exception("Purga de uso de tráfico falló.")
         await asyncio.sleep(DAY_SECONDS)

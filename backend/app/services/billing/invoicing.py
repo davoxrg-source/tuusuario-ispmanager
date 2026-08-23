@@ -91,6 +91,12 @@ def suspend_clients_with_overdue_invoices(db: Session, today: date | None = None
         for row in (
             db.query(Invoice)
             .filter(Invoice.status == InvoiceStatus.OVERDUE, Invoice.due_date < cutoff)
+            # Excluye facturas con una promesa de pago vigente (ver
+            # POST /invoices/{id}/promise-to-pay) -- si la fecha prometida ya
+            # pasó, deja de excluirse sola, sin código extra acá.
+            .filter(
+                (Invoice.promise_to_pay_until.is_(None)) | (Invoice.promise_to_pay_until < today)
+            )
             .all()
         )
     }

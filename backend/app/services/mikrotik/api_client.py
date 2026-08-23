@@ -193,6 +193,29 @@ def get_routing_tables(api: Any) -> list[dict[str, Any]]:
     return list(api("/routing/table/print"))
 
 
+def enable_traffic_flow(api: Any, target_address: str, target_port: int) -> None:
+    """Habilita el export NetFlow v5 del equipo hacia el colector de
+    ispmanager (ver services/netflow/collector.py). Idempotente: si ya
+    existe un target con esa IP:puerto no agrega uno duplicado.
+
+    Sintaxis verificada contra un CCR2004 real (RouterOS 7.24): el parámetro
+    se llama "dst-address", no "address" (falla con "unknown parameter
+    address"); y el target por defecto queda en NetFlow v9 si no se fija
+    "version" explícitamente -- el colector solo entiende v5 (formato fijo,
+    mucho más simple de parsear que el v9 basado en templates), así que acá
+    se fuerza version=5 siempre."""
+    list(api("/ip/traffic-flow/set", enabled="yes"))
+    for row in api("/ip/traffic-flow/target/print"):
+        if row.get("dst-address") == target_address and str(row.get("port")) == str(target_port):
+            return
+    list(
+        api(
+            "/ip/traffic-flow/target/add",
+            **{"dst-address": target_address, "port": str(target_port), "version": "5"},
+        )
+    )
+
+
 def create_routing_table(api: Any, name: str) -> None:
     list(api("/routing/table/add", name=name, fib=""))
 

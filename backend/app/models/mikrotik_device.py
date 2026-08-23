@@ -37,6 +37,11 @@ class MikrotikDevice(Base, TimestampMixin):
     model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     routeros_version: Mapped[str | None] = mapped_column(String(60), nullable=True)
 
+    # Si ya se le habilitó el export NetFlow hacia el colector de ispmanager
+    # (ver services/netflow/collector.py) -- evita reconfigurarlo en cada
+    # ciclo del poller, solo se hace una vez por equipo.
+    traffic_flow_configured: Mapped[bool] = mapped_column(default=False)
+
     status: Mapped[DeviceStatus] = mapped_column(
         pg_enum(DeviceStatus, "device_status"), default=DeviceStatus.UNKNOWN
     )

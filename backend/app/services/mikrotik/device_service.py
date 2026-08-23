@@ -361,6 +361,14 @@ class DeviceService:
                 if row.get("list") == addr_list:
                     list(api("/ip/firewall/address-list/remove", **{".id": row[".id"]}))
 
+    def enable_traffic_flow(self, target_address: str, target_port: int) -> None:
+        """Configura el equipo para exportar NetFlow v5 hacia el colector de
+        ispmanager. Llamado automáticamente por el poller la primera vez que
+        contacta un equipo (ver workers/poller.py) -- no requiere que el
+        operador entre manualmente a Winbox."""
+        with self._api() as api:
+            api_client.enable_traffic_flow(api, target_address, target_port)
+
     def find_stuck_qos_queues(self) -> list[str]:
         """Ver services/mikrotik/qos_health.py -- detecta colas con
         backlog sin drenar (rate=0 sostenido). No confirma nada por sí

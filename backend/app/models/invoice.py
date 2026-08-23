@@ -33,6 +33,12 @@ class Invoice(Base, TimestampMixin):
     )
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Prórroga puntual otorgada a este cliente/factura (ver
+    # POST /invoices/{id}/promise-to-pay) -- mientras esté vigente,
+    # suspend_clients_with_overdue_invoices no suspende por esta factura
+    # aunque ya haya pasado OVERDUE_GRACE_DAYS.
+    promise_to_pay_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+
     client: Mapped["Client"] = relationship(back_populates="invoices")  # noqa: F821
     payments: Mapped[list["Payment"]] = relationship(  # noqa: F821
         back_populates="invoice", cascade="all, delete-orphan"

@@ -9,21 +9,43 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 
-from app.api.routes import auth, billing, clients, devices, interfaces, monitoring, plans
+from app.api.routes import auth, billing, clients, devices, interfaces, monitoring, plans, tickets, traffic
 from app.core.config import get_settings
 from app.services.mikrotik.discovery import listener as mndp_listener
-from app.workers.poller import poll_devices_forever, run_daily_billing_forever
+from app.services.netflow.collector import start_collector
+from app.workers.poller import (
+    poll_devices_forever,
+    run_daily_billing_forever,
+    run_traffic_maintenance_forever,
+)
 
 logging.basicConfig(level=logging.INFO)
 
 background_tasks: list[asyncio.Task] = []
+netflow_transport: asyncio.DatagramTransport | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global netflow_transport
     mndp_listener.start()
+    # El colector NetFlow es una mejora, no un requisito para operar: si el
+    # puerto UDP está ocupado o falla por cualquier otra razón, el resto del
+    # backend (facturación, polling, API) debe arrancar igual.
+    try:
+        netflow_transport, netflow_protocol = await start_collector(settings.netflow_collector_port)
+        if netflow_protocol.maintenance_task:
+            background_tasks.append(netflow_protocol.maintenance_task)
+    except OSError as exc:
+        logging.getLogger(__name__).error(
+            "No se pudo iniciar el colector NetFlow en UDP %d (%s) -- "
+            "uso de tráfico por cliente quedará deshabilitado, el resto del backend sigue.",
+            settings.netflow_collector_port,
+            exc,
+        )
     background_tasks.append(asyncio.create_task(poll_devices_forever()))
     background_tasks.append(asyncio.create_task(run_daily_billing_forever()))
+    background_tasks.append(asyncio.create_task(run_traffic_maintenance_forever()))
     try:
         yield
     finally:
@@ -31,6 +53,8 @@ async def lifespan(app: FastAPI):
             task.cancel()
         await asyncio.gather(*background_tasks, return_exceptions=True)
         mndp_listener.stop()
+        if netflow_transport:
+            netflow_transport.close()
 
 
 settings = get_settings()
@@ -53,6 +77,8 @@ app.include_router(clients.router, prefix=api_prefix)
 app.include_router(monitoring.router, prefix=api_prefix)
 app.include_router(billing.router, prefix=api_prefix)
 app.include_router(interfaces.router, prefix=api_prefix)
+app.include_router(traffic.router, prefix=api_prefix)
+app.include_router(tickets.router, prefix=api_prefix)
 
 
 @app.get("/api/health")

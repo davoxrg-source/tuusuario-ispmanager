@@ -16,6 +16,14 @@ class Settings(BaseSettings):
 
     device_poll_interval_seconds: int = 300
 
+    # Colector NetFlow v5 (ver services/netflow/collector.py) para uso de
+    # tráfico por cliente. netflow_public_host es la IP/host de este backend
+    # que se le indica a cada Mikrotik como target de /ip/traffic-flow -- si
+    # queda vacío, el poller no intenta auto-configurar ningún equipo.
+    netflow_collector_port: int = 2055
+    netflow_public_host: str = ""
+    netflow_retention_days: int = 90
+
     environment: str = "production"
     cors_origins: str = "http://localhost:5173"
 

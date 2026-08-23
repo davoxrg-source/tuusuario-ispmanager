@@ -17,6 +17,7 @@ class InvoiceRead(BaseModel):
     amount: float
     status: InvoiceStatus
     paid_at: datetime | None = None
+    promise_to_pay_until: date | None = None
 
 
 class InvoiceCreate(BaseModel):
@@ -25,6 +26,10 @@ class InvoiceCreate(BaseModel):
     period_end: date
     due_date: date
     amount: float
+
+
+class PromiseToPayCreate(BaseModel):
+    until: date
 
 
 class PaymentCreate(BaseModel):
