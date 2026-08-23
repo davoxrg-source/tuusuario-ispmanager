@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     credentials_encryption_key: str = ""
 
     device_poll_interval_seconds: int = 300
+    # Aparte del polling general (métricas/QoS, cada device_poll_interval_seconds):
+    # el estado online/offline de los clientes (tabla ARP) se quiere ver más al
+    # día que eso, así que corre en su propio loop más frecuente.
+    client_arp_poll_interval_seconds: int = 60
 
     # Colector NetFlow v5 (ver services/netflow/collector.py) para uso de
     # tráfico por cliente. netflow_public_host es la IP/host de este backend

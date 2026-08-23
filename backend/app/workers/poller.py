@@ -1,11 +1,14 @@
 """Tareas en background embebidas en el proceso de uvicorn (sin proceso separado).
 
 - poll_devices_forever: cada DEVICE_POLL_INTERVAL_SECONDS, consulta cada Mikrotik
-  activo, guarda un snapshot en device_metrics, chequea colas QoS
+  activo, guarda un snapshot en device_metrics, y chequea colas QoS
   trabadas (ver services/mikrotik/qos_health.py) -- avisa por log si la
-  misma cola sigue trabada 2 ciclos seguidos -- y actualiza Client.is_online
-  de cada cliente del equipo según su tabla ARP (conectividad real, no
-  facturación).
+  misma cola sigue trabada 2 ciclos seguidos.
+- poll_client_online_status_forever: cada CLIENT_ARP_POLL_INTERVAL_SECONDS
+  (por defecto 60s, mucho más seguido que el polling general de arriba),
+  lee solo la tabla ARP de cada equipo y actualiza Client.is_online de sus
+  clientes (conectividad real, no facturación) -- loop aparte porque este
+  dato se quiere ver al día mucho más rápido que las métricas/QoS.
 - run_daily_billing_forever: una vez al día, genera facturas del mes, marca
   vencidas y suspende clientes en mora.
 """
@@ -121,7 +124,6 @@ def _poll_device_once(db: Session, device: MikrotikDevice) -> None:
         )
         _check_qos_health(device, service)
         _ensure_traffic_flow(device, service)
-        _update_client_online_status(db, device, service)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Polling falló para dispositivo %s (%s): %s", device.name, device.host, exc)
         device.status = DeviceStatus.OFFLINE
@@ -163,6 +165,33 @@ async def poll_devices_forever() -> None:
         except Exception:  # noqa: BLE001
             logger.exception("Ciclo de polling de dispositivos falló.")
         await asyncio.sleep(settings.device_poll_interval_seconds)
+
+
+def _poll_client_online_status_once(db: Session, device: MikrotikDevice) -> None:
+    password = decrypt_secret(device.encrypted_password)
+    service = DeviceService(device, password)
+    _update_client_online_status(db, device, service)
+    db.commit()
+
+
+def _poll_all_clients_online_status() -> None:
+    db = SessionLocal()
+    try:
+        devices = db.query(MikrotikDevice).all()
+        for device in devices:
+            _poll_client_online_status_once(db, device)
+    finally:
+        db.close()
+
+
+async def poll_client_online_status_forever() -> None:
+    settings = get_settings()
+    while True:
+        try:
+            await asyncio.to_thread(_poll_all_clients_online_status)
+        except Exception:  # noqa: BLE001
+            logger.exception("Ciclo de estado de conexión de clientes falló.")
+        await asyncio.sleep(settings.client_arp_poll_interval_seconds)
 
 
 async def run_daily_billing_forever() -> None:

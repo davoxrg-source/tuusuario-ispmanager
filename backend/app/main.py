@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.services.mikrotik.discovery import listener as mndp_listener
 from app.services.netflow.collector import start_collector
 from app.workers.poller import (
+    poll_client_online_status_forever,
     poll_devices_forever,
     run_daily_billing_forever,
     run_traffic_maintenance_forever,
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI):
             exc,
         )
     background_tasks.append(asyncio.create_task(poll_devices_forever()))
+    background_tasks.append(asyncio.create_task(poll_client_online_status_forever()))
     background_tasks.append(asyncio.create_task(run_daily_billing_forever()))
     background_tasks.append(asyncio.create_task(run_traffic_maintenance_forever()))
     try:
