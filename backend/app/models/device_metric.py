@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, JSON, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,8 +18,11 @@ class DeviceMetric(Base):
         DateTime(timezone=True), server_default=func.now(), index=True
     )
     cpu_load_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    memory_used_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    memory_total_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # BigInteger, no Integer: un equipo con 4GB+ de RAM ya desborda un
+    # int32 de Postgres (4294967296 > 2147483647) — pasó de verdad con el
+    # CCR2004 real, tumbando cada ciclo del poller de métricas.
+    memory_used_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    memory_total_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     uptime_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     active_ppp_sessions: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # snapshot libre de estadísticas de interfaces: [{name, rx_bytes, tx_bytes}, ...]
