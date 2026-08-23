@@ -38,6 +38,31 @@ hacía HFSC. PCQ reparte lo disponible de forma justa entre los clientes
 activos del pool, capado por cliente en el ceil del plan — en la práctica
 un resultado muy similar salvo que TODOS los clientes de un plan estén
 saturando el mismo nivel exactamente al mismo tiempo.
+
+Dos bugs más, encontrados con un cliente real bajo un test de velocidad
+real (no teóricos):
+
+1. El nivel "tiempo real" clasifica por PAQUETE (`mark-packet`), no por
+   conexión. Una versión anterior usaba `mark-connection` (marca una vez,
+   en el primer paquete, y esa marca queda para toda la conexión) — pero
+   el primer paquete de CUALQUIER conexión TCP es el handshake, siempre
+   chico, así que toda conexión nueva heredaba "tiempo real" para
+   siempre, aunque después transportara datos grandes (medido: 58MB de
+   una descarga real coladas ahí, contra 25KB de tráfico genuinamente
+   chico). El legacy nunca tuvo este problema porque marca cada paquete
+   por separado (`-j MARK`, no `-j CONNMARK`).
+2. El techo del nivel "tiempo real" es el PISO del plan (9%), no su ceil
+   — igual que el legacy, cuya clase rt nunca tuvo `ul`. Si tuviera
+   acceso al ceil completo, cualquier tráfico mal clasificado ahí (aunque
+   el bug de arriba esté resuelto, algo va a colarse alguna vez) podría
+   saturar la cola de mayor prioridad consigo misma y arrastrar el
+   tráfico real-time genuino con ella.
+
+También se probó (y se descartó) escalar `pcq-limit` proporcional a la
+velocidad del plan para evitar bufferbloat en planes lentos — bajarlo lo
+suficiente para importar en un plan de 1 Mbit resultó en ~99% de pérdida
+de paquetes navegando de verdad (ver DEFAULT_PCQ_LIMIT). Como este ISP no
+ofrece planes por debajo de 10 Mbit, queda fijo en el default de RouterOS.
 """
 
 from __future__ import annotations
@@ -88,21 +113,23 @@ def pcq_type_name(ref: str, direction: str) -> str:
 
 
 def mark_name(ref: str, tier: str) -> str:
-    """Mismo string se usa como connection-mark y como packet-mark — no hay
-    ambigüedad porque son namespaces separados en RouterOS."""
+    """El packet-mark de este plan+nivel (ver build_plan_bootstrap_plan)."""
     return f"isp-{ref}-{tier}"
 
 
-def _pcq_limit_for_rate(rate_kbps: int, target_ms: int = 100) -> int:
-    """Tamaño del buffer de PCQ en paquetes, proporcional a la velocidad del
-    plan -- no un valor fijo. El default de RouterOS (50 paquetes) son
-    ~600ms de cola extra en un plan de 1 Mbit bajo carga (bufferbloat real,
-    visto en producción: 382ms de latencia de subida en un cliente de 1
-    Mbit haciendo un test de velocidad) pero es insignificante en uno de
-    100 Mbit. Apunta a `target_ms` de buffering como máximo, asumiendo un
-    tamaño de paquete promedio de 1000 bytes (8000 bits)."""
-    packets = (rate_kbps * target_ms) // 8000
-    return max(10, min(200, packets))
+# Tamaño del buffer de PCQ (paquetes) -- el default de RouterOS. Se probó
+# escalarlo proporcional a la velocidad del plan para evitar bufferbloat en
+# planes muy lentos (50 paquetes son ~600ms de cola extra a 1 Mbit, medido
+# en vivo: 382ms-1.8s de latencia bajo carga) -- pero bajarlo demasiado
+# (12-37 paquetes) causó ~99% de pérdida de paquetes navegando de verdad
+# (ráfagas de varias conexiones simultáneas al cargar una página, nada
+# parecido al flujo parejo de un test de velocidad; medido: 3539 paquetes
+# descartados contra 44 entregados). Dado que este ISP no maneja planes
+# por debajo de 10 Mbit para ningún cliente (a esa velocidad 50 paquetes
+# son ~40ms, insignificante), no vale la pena la complejidad de escalarlo
+# -- si en algún momento se ofrece un plan bien lento, ahí sí conviene
+# retomar un cálculo proporcional (ver historial de este archivo en git).
+DEFAULT_PCQ_LIMIT = 50
 
 
 def kbps_for_plan(plan: Plan) -> tuple[int, int, int, int]:
@@ -139,7 +166,6 @@ def build_plan_bootstrap_plan(
 
     # --- 1) PCQ por dirección: separa automáticamente por IP de cliente
     # dentro del pool de este plan, capado al ceil del plan por cliente.
-    # pcq-limit proporcional a la velocidad -- ver _pcq_limit_for_rate.
     commands.append(
         WanCommandResult(
             description=f"Cola PCQ de descarga del plan {plan.name}",
@@ -147,7 +173,7 @@ def build_plan_bootstrap_plan(
             params={
                 "name": pcq_down, "kind": "pcq",
                 "pcq-rate": f"{ceil_down}k", "pcq-classifier": "dst-address",
-                "pcq-limit": str(_pcq_limit_for_rate(ceil_down)),
+                "pcq-limit": str(DEFAULT_PCQ_LIMIT),
             },
         )
     )
@@ -158,27 +184,38 @@ def build_plan_bootstrap_plan(
             params={
                 "name": pcq_up, "kind": "pcq",
                 "pcq-rate": f"{ceil_up}k", "pcq-classifier": "src-address",
-                "pcq-limit": str(_pcq_limit_for_rate(ceil_up)),
+                "pcq-limit": str(DEFAULT_PCQ_LIMIT),
             },
         )
     )
 
-    # --- 2) Mangle: marca conexiones de clientes de ESTE plan (scopeado por
-    # address-list) en 3 niveles, con el mismo criterio del sistema legacy
-    # (paquete chico = interactivo, sin DPI). Dos variantes por criterio
-    # (dst-address-list / src-address-list) porque no sabemos de qué lado
-    # del cliente sale el primer paquete de la conexión; una vez marcada la
-    # conexión, RouterOS la reconoce en ambos sentidos sin re-evaluar nada.
-    def mark_connection(comment: str, tier: str, match: dict[str, str]) -> None:
+    # --- 2) Mangle: marca cada PAQUETE (no la conexión) de clientes de ESTE
+    # plan (scopeado por address-list) en 3 niveles, con el mismo criterio
+    # del sistema legacy (paquete chico = interactivo, sin DPI).
+    #
+    # Importante — bug real, visto en producción: la primera versión de
+    # este módulo usaba mark-connection (marca UNA VEZ, en el primer
+    # paquete de la conexión, y esa marca queda para toda la conexión). El
+    # primer paquete de CUALQUIER conexión TCP es el handshake (SYN), que
+    # siempre es chico — así que toda conexión nueva se marcaba "tiempo
+    # real" por su arranque, y los datos grandes que venían después en esa
+    # misma conexión heredaban esa marca para siempre (medido: 58MB de una
+    # descarga real coladas en la cola de tiempo real de un plan de 1Mbit,
+    # contra apenas 25KB de tráfico genuinamente chico). El legacy nunca
+    # tuvo este problema porque marca cada paquete (`-j MARK`, no
+    # `-j CONNMARK`) de forma independiente. Acá se replica eso: mark-packet
+    # directo, sin pasar por connection-mark — cada paquete se reclasifica
+    # solo, sin memoria de los anteriores de su misma conexión.
+    def mark_packet(comment: str, tier: str, match: dict[str, str]) -> None:
         mark = mark_name(ref, tier)
         for list_field in ("dst-address-list", "src-address-list"):
             params: dict[str, str] = {
                 "chain": "forward",
-                "connection-mark": "no-mark",
+                "packet-mark": "no-mark",
                 list_field: addr_list,
-                "action": "mark-connection",
-                "new-connection-mark": mark,
-                "passthrough": "yes",
+                "action": "mark-packet",
+                "new-packet-mark": mark,
+                "passthrough": "no",
                 "comment": _ascii_safe(f"{QOS_COMMENT_PREFIX} {plan.name}: {comment}"),
             }
             params.update(match)
@@ -186,57 +223,39 @@ def build_plan_bootstrap_plan(
                 WanCommandResult(description=comment, path="/ip/firewall/mangle/add", params=params)
             )
 
-    mark_connection(
+    mark_packet(
         "tiempo real: TCP chico (ACKs/control)", TIER_REALTIME,
         {"protocol": "tcp", "packet-size": f"0-{realtime_tcp_max_size}"},
     )
-    mark_connection(
+    mark_packet(
         "tiempo real: UDP chico (DNS/voz/juegos)", TIER_REALTIME,
         {"protocol": "udp", "packet-size": f"0-{realtime_udp_max_size}"},
     )
-    mark_connection("tiempo real: ICMP", TIER_REALTIME, {"protocol": "icmp"})
-    mark_connection("tiempo real: SSH", TIER_REALTIME, {"protocol": "tcp", "port": "22"})
-    mark_connection("tiempo real: DNS", TIER_REALTIME, {"protocol": "tcp", "port": "53"})
-    mark_connection("tiempo real: DNS", TIER_REALTIME, {"protocol": "udp", "port": "53"})
-    mark_connection("tiempo real: RDP", TIER_REALTIME, {"protocol": "tcp", "port": "3389"})
-    mark_connection(
+    mark_packet("tiempo real: ICMP", TIER_REALTIME, {"protocol": "icmp"})
+    mark_packet("tiempo real: SSH", TIER_REALTIME, {"protocol": "tcp", "port": "22"})
+    mark_packet("tiempo real: DNS", TIER_REALTIME, {"protocol": "tcp", "port": "53"})
+    mark_packet("tiempo real: DNS", TIER_REALTIME, {"protocol": "udp", "port": "53"})
+    mark_packet("tiempo real: RDP", TIER_REALTIME, {"protocol": "tcp", "port": "3389"})
+    mark_packet(
         "tiempo real: SIP (equivalente a helper=sip del legacy)", TIER_REALTIME,
         {"protocol": "tcp", "port": "5060-5061"},
     )
-    mark_connection(
+    mark_packet(
         "tiempo real: SIP (equivalente a helper=sip del legacy)", TIER_REALTIME,
         {"protocol": "udp", "port": "5060-5061"},
     )
-    mark_connection("prioridad: IGMP", TIER_PRIORITY, {"protocol": "igmp"})
+    mark_packet("prioridad: IGMP", TIER_PRIORITY, {"protocol": "igmp"})
     if priority_tcp_ports:
-        mark_connection(
+        mark_packet(
             "prioridad: puertos TCP configurados", TIER_PRIORITY,
             {"protocol": "tcp", "port": ",".join(str(p) for p in priority_tcp_ports)},
         )
     if priority_udp_ports:
-        mark_connection(
+        mark_packet(
             "prioridad: puertos UDP configurados", TIER_PRIORITY,
             {"protocol": "udp", "port": ",".join(str(p) for p in priority_udp_ports)},
         )
-    mark_connection("bulk: resto del tráfico", TIER_BULK, {})
-
-    # --- Traducción connection-mark -> packet-mark (lo que sí puede filtrar un queue tree).
-    for tier in TIERS:
-        mark = mark_name(ref, tier)
-        commands.append(
-            WanCommandResult(
-                description=f"{tier} -> packet-mark",
-                path="/ip/firewall/mangle/add",
-                params={
-                    "chain": "forward",
-                    "connection-mark": mark,
-                    "action": "mark-packet",
-                    "new-packet-mark": mark,
-                    "passthrough": "no",
-                    "comment": _ascii_safe(f"{QOS_COMMENT_PREFIX} {plan.name}: {tier} -> packet-mark"),
-                },
-            )
-        )
+    mark_packet("bulk: resto del tráfico", TIER_BULK, {})
 
     # --- 3) Queue tree: 3 niveles × 2 direcciones, cada uno filtrado por su
     # propio packet-mark (único por plan+nivel — no hace falta address en el

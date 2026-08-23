@@ -47,31 +47,26 @@ def test_kbps_for_plan_applies_guaranteed_floor_percent():
     assert (floor_down, floor_up) == (2700, 900)
 
 
-def test_pcq_limit_for_rate_is_proportional_not_fixed():
-    # Reproduce el bug real visto en producción: pcq-limit=50 fijo son
-    # ~600ms de bufferbloat en un plan de 1Mbit (382ms medidos con un test
-    # de velocidad real) pero nada en uno de 100Mbit. El límite tiene que
-    # escalar con la velocidad, no ser una constante.
-    slow = qos._pcq_limit_for_rate(1000)  # 1 Mbit
-    fast = qos._pcq_limit_for_rate(100000)  # 100 Mbit
-    assert slow < fast
-    assert slow == 12  # (1000*100)//8000
-    # Piso: incluso un plan muy lento mantiene algo de buffer para ráfagas.
-    assert qos._pcq_limit_for_rate(64) >= 10
-    # Techo: no crece sin límite en planes muy rápidos.
-    assert qos._pcq_limit_for_rate(1_000_000) <= 200
-
-
-def test_build_plan_bootstrap_pcq_limit_scales_with_plan_speed():
-    slow_plan = _fake_plan(download_speed_mbps=1, upload_speed_mbps=1)
-    fast_plan = _fake_plan(download_speed_mbps=100, upload_speed_mbps=100)
+def test_build_plan_bootstrap_pcq_limit_is_fixed_at_routeros_default():
+    # Se probó (y se descartó) escalar pcq-limit proporcional a la
+    # velocidad del plan para evitar bufferbloat en planes lentos -- bajarlo
+    # lo suficiente para que importe en un plan de 1 Mbit causó ~99% de
+    # pérdida de paquetes navegando de verdad (ráfagas de varias conexiones
+    # a la vez, no el flujo parejo de un test de velocidad). Como este ISP
+    # no ofrece planes por debajo de 10 Mbit, donde el default de RouterOS
+    # ya es insignificante (~40ms), queda fijo -- no escala con la
+    # velocidad del plan.
+    slow_plan = _fake_plan(download_speed_mbps=10, upload_speed_mbps=10)
+    fast_plan = _fake_plan(download_speed_mbps=300, upload_speed_mbps=300)
 
     slow_commands = qos.build_plan_bootstrap_plan(slow_plan, "bridge-lan", "ether1-wan")
     fast_commands = qos.build_plan_bootstrap_plan(fast_plan, "bridge-lan", "ether1-wan")
 
-    slow_pcq = next(c for c in slow_commands if c.path == "/queue/type/add" and "down" in c.params["name"])
-    fast_pcq = next(c for c in fast_commands if c.path == "/queue/type/add" and "down" in c.params["name"])
-    assert int(slow_pcq.params["pcq-limit"]) < int(fast_pcq.params["pcq-limit"])
+    for commands in (slow_commands, fast_commands):
+        pcq_commands = [c for c in commands if c.path == "/queue/type/add"]
+        assert len(pcq_commands) == 2
+        for c in pcq_commands:
+            assert c.params["pcq-limit"] == str(qos.DEFAULT_PCQ_LIMIT) == "50"
 
 
 def test_build_plan_bootstrap_creates_pcq_before_queue_tree_and_never_uses_address_on_tree():
@@ -141,25 +136,30 @@ def test_build_plan_bootstrap_queue_tree_has_three_tiers_per_direction_with_floo
     assert bulk["packet-mark"] == qos.mark_name(ref, qos.TIER_BULK)
 
 
-def test_build_plan_bootstrap_mangle_is_scoped_to_this_plans_address_list():
+def test_build_plan_bootstrap_mangle_marks_every_packet_not_the_connection():
+    # Reproduce el bug real: con mark-connection, el primer paquete de una
+    # conexión (el handshake, siempre chico) decidía la marca para TODA la
+    # conexión -- 58MB de una descarga real terminaron en la cola de tiempo
+    # real de un plan de 1Mbit por esto. Cada paquete se tiene que
+    # reclasificar solo, sin memoria de los anteriores de su conexión.
     plan = _fake_plan()
     commands = qos.build_plan_bootstrap_plan(plan, lan_interface="bridge-lan", wan_interface="ether1-wan")
     addr_list = qos.address_list_name(qos.plan_ref(plan))
 
-    mark_connection_rules = [c for c in commands if c.params.get("action") == "mark-connection"]
-    assert mark_connection_rules, "debe haber reglas de marcado"
-    for c in mark_connection_rules:
+    assert not any(c.params.get("action") == "mark-connection" for c in commands)
+    assert not any("connection-mark" in c.params for c in commands)
+
+    mark_rules = [c for c in commands if c.params.get("action") == "mark-packet"]
+    assert mark_rules, "debe haber reglas de marcado"
+    for c in mark_rules:
+        assert c.params.get("packet-mark") == "no-mark"  # re-evalúa cada paquete, sin memoria
         # Cada regla scopea al address-list del plan por un lado u otro
-        # (no sabemos de qué lado sale el primer paquete de la conexión).
+        # (no sabemos de qué lado sale el paquete respecto del cliente).
         assert c.params.get("dst-address-list") == addr_list or c.params.get("src-address-list") == addr_list
 
-    marks = {c.params["new-connection-mark"] for c in mark_connection_rules}
+    marks = {c.params["new-packet-mark"] for c in mark_rules}
     ref = qos.plan_ref(plan)
     assert marks == {qos.mark_name(ref, t) for t in qos.TIERS}
-
-    # 3 traducciones connection-mark -> packet-mark, una por nivel.
-    packet_mark_rules = [c for c in commands if c.params.get("action") == "mark-packet"]
-    assert len(packet_mark_rules) == 3
 
 
 def test_build_plan_bootstrap_skips_empty_priority_port_lists():
