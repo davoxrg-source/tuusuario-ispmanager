@@ -409,6 +409,12 @@ def find_address_list_entry_id(api: Any, list_name: str, address: str) -> str | 
 
 
 def add_address_list_entry(api: Any, list_name: str, address: str, comment: str | None = None) -> None:
+    """Idempotente: si la IP ya está en esta lista (ej. el cliente ya estaba
+    aprovisionado, o se hizo doble clic en el panel), no hace nada — RouterOS
+    rechaza un /add duplicado con "failure: already have such entry" y sin
+    este chequeo esa acción, pensada para poder repetirse sin drama, fallaba."""
+    if find_address_list_entry_id(api, list_name, address) is not None:
+        return
     params: dict[str, str] = {"list": list_name, "address": address}
     if comment:
         params["comment"] = comment
@@ -565,6 +571,23 @@ def remove_queue_tree_by_name(api: Any, name: str) -> bool:
         return False
     remove_queue_tree(api, tree_id)
     return True
+
+
+# --- Corte por mora (address-list + regla de firewall) ---
+# Ver app/services/mikrotik/suspension.py para el diseño. Verificado contra
+# un CCR2004 real (RouterOS 7.24): /ip/firewall/filter acepta
+# src-address-list igual que mangle.
+
+
+def get_filter_rules(api: Any) -> list[dict[str, Any]]:
+    return list(api("/ip/firewall/filter/print"))
+
+
+def get_filter_rule_by_comment(api: Any, comment: str) -> dict[str, Any] | None:
+    for row in get_filter_rules(api):
+        if row.get("comment") == comment:
+            return row
+    return None
 
 
 def reset_configuration(api: Any, no_defaults: bool = True) -> None:

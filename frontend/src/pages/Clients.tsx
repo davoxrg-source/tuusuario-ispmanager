@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createClient,
@@ -6,20 +6,22 @@ import {
   listClients,
   reactivateClient,
   suspendClient,
+  updateClient,
 } from "../api/clients";
 import { provisionClientQos, removeClientQos } from "../api/qos";
 import { listPlans } from "../api/plans";
 import { listDevices } from "../api/devices";
-import type { ClientInput } from "../api/types";
+import type { Client, ClientInput } from "../api/types";
+import Field from "../components/Field";
 
 const emptyForm: ClientInput = {
   full_name: "",
+  identification: "",
   email: "",
   phone: "",
+  address: "",
   plan_id: null,
   mikrotik_device_id: null,
-  pppoe_username: "",
-  pppoe_password: "",
   ip_address: "",
 };
 
@@ -30,13 +32,49 @@ export default function Clients() {
   const { data: devices = [] } = useQuery({ queryKey: ["devices"], queryFn: listDevices });
   const [form, setForm] = useState<ClientInput>(emptyForm);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ field: SortField; dir: "asc" | "desc" }>({
+    field: "full_name",
+    dir: "asc",
+  });
+
+  const sortedClients = useMemo(() => {
+    const value = (client: (typeof clients)[number]): string => {
+      switch (sort.field) {
+        case "plan":
+          return planName(client.plan_id);
+        case "status":
+          return client.status;
+        case "ip_address":
+          return client.ip_address ?? "";
+        default:
+          return client.full_name;
+      }
+    };
+    const compare = sort.field === "ip_address" ? compareIp : compareText;
+    const sorted = [...clients].sort((a, b) => compare(value(a), value(b)));
+    return sort.dir === "asc" ? sorted : sorted.reverse();
+  }, [clients, sort, plans]);
+
+  function toggleSort(field: SortField) {
+    setSort((prev) =>
+      prev.field === field ? { field, dir: prev.dir === "asc" ? "desc" : "asc" } : { field, dir: "asc" },
+    );
+  }
 
   const createMutation = useMutation({
     mutationFn: createClient,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
-      setForm(emptyForm);
-      setShowForm(false);
+      closeForm();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: ClientInput }) => updateClient(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      closeForm();
     },
   });
 
@@ -57,20 +95,50 @@ export default function Clients() {
 
   const provisionQosMutation = useMutation({
     mutationFn: provisionClientQos,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["clients"] }),
-    onError: (err) =>
-      alert(axiosErrorMessage(err) ?? "No se pudo aplicar el QoS. ¿El plan ya tiene su infraestructura creada en el equipo (pestaña QoS del equipo)?"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      alert("QoS aplicado: el cliente ya está en el address-list de su plan.");
+    },
+    onError: (err) => alert(axiosErrorMessage(err) ?? "No se pudo aplicar el QoS."),
   });
 
   const removeQosMutation = useMutation({
     mutationFn: removeClientQos,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["clients"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      alert("QoS quitado: el cliente ya no está en el address-list de su plan.");
+    },
     onError: (err) => alert(axiosErrorMessage(err) ?? "No se pudo quitar el QoS."),
   });
 
+  function closeForm() {
+    setForm(emptyForm);
+    setEditingId(null);
+    setShowForm(false);
+  }
+
+  function startEdit(client: Client) {
+    setForm({
+      full_name: client.full_name,
+      identification: client.identification ?? "",
+      email: client.email ?? "",
+      phone: client.phone ?? "",
+      address: client.address ?? "",
+      plan_id: client.plan_id,
+      mikrotik_device_id: client.mikrotik_device_id,
+      ip_address: client.ip_address ?? "",
+    });
+    setEditingId(client.id);
+    setShowForm(true);
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    createMutation.mutate(form);
+    if (editingId) {
+      updateMutation.mutate({ id: editingId, payload: form });
+    } else {
+      createMutation.mutate(form);
+    }
   }
 
   function planName(id: string | null) {
@@ -81,81 +149,96 @@ export default function Clients() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-slate-800">Clientes</h1>
-        <button onClick={() => setShowForm((s) => !s)} className="bg-slate-900 text-white text-sm rounded px-4 py-2">
+        <button
+          onClick={() => (showForm ? closeForm() : setShowForm(true))}
+          className="bg-slate-900 text-white text-sm rounded px-4 py-2"
+        >
           {showForm ? "Cancelar" : "Nuevo cliente"}
         </button>
       </div>
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-5 grid grid-cols-2 gap-4">
-          <input
-            required
-            placeholder="Nombre completo"
-            value={form.full_name}
-            onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-            className="border rounded px-3 py-2 text-sm"
-          />
-          <input
-            placeholder="Correo"
-            value={form.email ?? ""}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            className="border rounded px-3 py-2 text-sm"
-          />
-          <input
-            placeholder="Teléfono"
-            value={form.phone ?? ""}
-            onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            className="border rounded px-3 py-2 text-sm"
-          />
-          <select
-            value={form.plan_id ?? ""}
-            onChange={(e) => setForm({ ...form, plan_id: e.target.value || null })}
-            className="border rounded px-3 py-2 text-sm"
-          >
-            <option value="">Sin plan</option>
-            {plans.map((plan) => (
-              <option key={plan.id} value={plan.id}>
-                {plan.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={form.mikrotik_device_id ?? ""}
-            onChange={(e) => setForm({ ...form, mikrotik_device_id: e.target.value || null })}
-            className="border rounded px-3 py-2 text-sm"
-          >
-            <option value="">Sin equipo asignado</option>
-            {devices.map((device) => (
-              <option key={device.id} value={device.id}>
-                {device.name}
-              </option>
-            ))}
-          </select>
-          <input
-            placeholder="IP asignada"
-            value={form.ip_address ?? ""}
-            onChange={(e) => setForm({ ...form, ip_address: e.target.value })}
-            className="border rounded px-3 py-2 text-sm"
-          />
-          <input
-            placeholder="Usuario PPPoE"
-            value={form.pppoe_username ?? ""}
-            onChange={(e) => setForm({ ...form, pppoe_username: e.target.value })}
-            className="border rounded px-3 py-2 text-sm"
-          />
-          <input
-            type="password"
-            placeholder="Contraseña PPPoE"
-            value={form.pppoe_password ?? ""}
-            onChange={(e) => setForm({ ...form, pppoe_password: e.target.value })}
-            className="border rounded px-3 py-2 text-sm"
-          />
+          <h2 className="col-span-2 text-sm font-medium text-slate-600 -mb-2">
+            {editingId ? "Editar cliente" : "Nuevo cliente"}
+          </h2>
+          <Field label="Nombre completo">
+            <input
+              required
+              value={form.full_name}
+              onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field label="Identificación">
+            <input
+              value={form.identification ?? ""}
+              onChange={(e) => setForm({ ...form, identification: e.target.value })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field label="Correo">
+            <input
+              value={form.email ?? ""}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field label="Teléfono">
+            <input
+              value={form.phone ?? ""}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field label="Dirección">
+            <input
+              value={form.address ?? ""}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field label="IP asignada">
+            <input
+              value={form.ip_address ?? ""}
+              onChange={(e) => setForm({ ...form, ip_address: e.target.value })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field label="Plan">
+            <select
+              value={form.plan_id ?? ""}
+              onChange={(e) => setForm({ ...form, plan_id: e.target.value || null })}
+              className="border rounded px-3 py-2 text-sm w-full bg-white"
+            >
+              <option value="">Sin plan</option>
+              {plans.map((plan) => (
+                <option key={plan.id} value={plan.id}>
+                  {plan.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Equipo Mikrotik">
+            <select
+              value={form.mikrotik_device_id ?? ""}
+              onChange={(e) => setForm({ ...form, mikrotik_device_id: e.target.value || null })}
+              className="border rounded px-3 py-2 text-sm w-full bg-white"
+            >
+              <option value="">Sin equipo asignado</option>
+              {devices.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {device.name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <button
             type="submit"
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || updateMutation.isPending}
             className="col-span-2 bg-slate-900 text-white text-sm rounded py-2 disabled:opacity-50"
           >
-            Guardar cliente
+            {editingId ? "Actualizar cliente" : "Guardar cliente"}
           </button>
         </form>
       )}
@@ -164,19 +247,21 @@ export default function Clients() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
-              <th className="px-4 py-2">Nombre</th>
-              <th className="px-4 py-2">Plan</th>
-              <th className="px-4 py-2">Estado</th>
+              <SortableHeader field="full_name" label="Nombre" sort={sort} onClick={toggleSort} />
+              <SortableHeader field="ip_address" label="IP" sort={sort} onClick={toggleSort} />
+              <SortableHeader field="plan" label="Plan" sort={sort} onClick={toggleSort} />
+              <SortableHeader field="status" label="Estado" sort={sort} onClick={toggleSort} />
               <th className="px-4 py-2">Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {clients.map((client) => (
+            {sortedClients.map((client) => (
               <tr key={client.id} className="border-t">
                 <td className="px-4 py-2">
                   {client.full_name}
                   <div className="text-xs text-slate-400">{client.email}</div>
                 </td>
+                <td className="px-4 py-2 font-mono text-xs">{client.ip_address ?? "—"}</td>
                 <td className="px-4 py-2">{planName(client.plan_id)}</td>
                 <td className="px-4 py-2">
                   <span
@@ -192,6 +277,9 @@ export default function Clients() {
                   </span>
                 </td>
                 <td className="px-4 py-2 space-x-2">
+                  <button onClick={() => startEdit(client)} className="text-xs text-blue-600 hover:underline">
+                    Editar
+                  </button>
                   {client.status === "active" ? (
                     <button
                       onClick={() => suspendMutation.mutate(client.id)}
@@ -237,7 +325,7 @@ export default function Clients() {
             ))}
             {clients.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
                   Aún no hay clientes.
                 </td>
               </tr>
@@ -247,6 +335,52 @@ export default function Clients() {
       </div>
     </div>
   );
+}
+
+type SortField = "full_name" | "ip_address" | "plan" | "status";
+
+function SortableHeader({
+  field,
+  label,
+  sort,
+  onClick,
+}: {
+  field: SortField;
+  label: string;
+  sort: { field: SortField; dir: "asc" | "desc" };
+  onClick: (field: SortField) => void;
+}) {
+  const active = sort.field === field;
+  return (
+    <th className="px-4 py-2">
+      <button
+        onClick={() => onClick(field)}
+        className={`flex items-center gap-1 hover:text-slate-800 ${active ? "text-slate-800 font-medium" : ""}`}
+      >
+        {label}
+        <span className="text-slate-400">{active ? (sort.dir === "asc" ? "▲" : "▼") : "⇅"}</span>
+      </button>
+    </th>
+  );
+}
+
+function compareText(a: string, b: string): number {
+  return a.localeCompare(b, "es", { sensitivity: "base" });
+}
+
+// Compara IPs octeto por octeto como números, no como texto -- si no,
+// "10.100.10.5" queda antes que "10.100.9.5" porque '1' < '9' como caracter.
+function compareIp(a: string, b: string): number {
+  if (!a && !b) return 0;
+  if (!a) return 1; // sin IP al final
+  if (!b) return -1;
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
 }
 
 function axiosErrorMessage(err: unknown): string | null {

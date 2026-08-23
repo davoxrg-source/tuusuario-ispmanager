@@ -33,9 +33,6 @@ class Client(Base, TimestampMixin):
         ForeignKey("mikrotik_devices.id"), nullable=True
     )
 
-    pppoe_username: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    # Contraseña PPPoE cifrada con Fernet. Nunca en texto plano.
-    encrypted_pppoe_password: Mapped[str | None] = mapped_column(String(500), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
 
     status: Mapped[ClientStatus] = mapped_column(

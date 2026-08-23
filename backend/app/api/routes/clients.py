@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_admin
-from app.core.security import decrypt_secret, encrypt_secret
+from app.core.security import decrypt_secret
 from app.db.session import get_db
 from app.models.client import Client, ClientStatus
 from app.models.mikrotik_device import MikrotikDevice
@@ -39,24 +39,51 @@ def list_clients(db: Session = Depends(get_db)) -> list[Client]:
     return db.query(Client).order_by(Client.full_name).all()
 
 
+def _sync_client_qos(
+    db: Session,
+    client: Client,
+    old_plan_id: uuid.UUID | None,
+    old_ip: str | None,
+    old_device_id: uuid.UUID | None,
+) -> None:
+    """Deja el QoS del cliente al día con lo que quedó guardado: lo saca del
+    address-list de su plan/equipo/IP anterior si algo de eso cambió, y
+    siempre lo asegura en el del actual (idempotente -- no crea nada nuevo
+    si ya estaba). Se llama en cada alta y cada edición, no solo cuando
+    cambia algo puntual: así "guardar cliente" siempre deja el QoS
+    aplicado, sin necesitar un botón aparte para eso."""
+    target_changed = (
+        client.plan_id != old_plan_id
+        or client.ip_address != old_ip
+        or client.mikrotik_device_id != old_device_id
+    )
+    if target_changed and old_plan_id and old_ip and old_device_id:
+        old_device = db.get(MikrotikDevice, old_device_id)
+        old_plan = db.get(Plan, old_plan_id)
+        if old_device and old_plan:
+            try:
+                old_service = DeviceService(old_device, decrypt_secret(old_device.encrypted_password))
+                old_service.remove_client_qos_ip(old_plan, old_ip)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("No se pudo sacar al cliente %s del QoS anterior: %s", client.id, exc)
+
+    if client.plan_id and client.ip_address and client.mikrotik_device_id:
+        service = _device_service_for(db, client)
+        plan = db.get(Plan, client.plan_id)
+        if service and plan:
+            try:
+                service.provision_client_qos_ip(plan, client.ip_address)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("No se pudo aplicar el QoS al cliente %s: %s", client.id, exc)
+
+
 @router.post("", response_model=ClientRead, status_code=201)
 def create_client(payload: ClientCreate, db: Session = Depends(get_db)) -> Client:
-    data = payload.model_dump(exclude={"pppoe_password"})
-    client = Client(**data)
-    if payload.pppoe_password:
-        client.encrypted_pppoe_password = encrypt_secret(payload.pppoe_password)
+    client = Client(**payload.model_dump())
     db.add(client)
     db.commit()
     db.refresh(client)
-
-    if client.pppoe_username and payload.pppoe_password:
-        service = _device_service_for(db, client)
-        if service:
-            try:
-                service.create_pppoe_secret(client.pppoe_username, payload.pppoe_password)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("No se pudo crear el secreto PPPoE en el Mikrotik: %s", exc)
-
+    _sync_client_qos(db, client, old_plan_id=None, old_ip=None, old_device_id=None)
     return client
 
 
@@ -67,15 +94,22 @@ def get_client(client_id: uuid.UUID, db: Session = Depends(get_db)) -> Client:
 
 @router.patch("/{client_id}", response_model=ClientRead)
 def update_client(client_id: uuid.UUID, payload: ClientUpdate, db: Session = Depends(get_db)) -> Client:
+    """Guardar un cliente siempre deja su QoS al día (ver _sync_client_qos):
+    si cambió plan/IP/equipo, lo saca de la lista vieja y lo pone en la
+    nueva; si no cambió nada de eso, igual se asegura de que esté
+    provisionado (por si nunca lo estuvo). Sin esto, cambiar de plan dejaba
+    la IP en las DOS listas -- y como las reglas mangle del plan viejo se
+    crearon primero, seguían ganando y el cliente quedaba shapeado con la
+    velocidad anterior (bug real, visto en producción antes de este fix)."""
     client = _get_client_or_404(db, client_id)
-    data = payload.model_dump(exclude_unset=True)
-    pppoe_password = data.pop("pppoe_password", None)
-    for field, value in data.items():
+    old_plan_id, old_ip, old_device_id = client.plan_id, client.ip_address, client.mikrotik_device_id
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(client, field, value)
-    if pppoe_password:
-        client.encrypted_pppoe_password = encrypt_secret(pppoe_password)
     db.commit()
     db.refresh(client)
+
+    _sync_client_qos(db, client, old_plan_id, old_ip, old_device_id)
     return client
 
 
@@ -88,18 +122,21 @@ def delete_client(client_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
 
 @router.post("/{client_id}/suspend", response_model=ClientRead)
 def suspend_client(client_id: uuid.UUID, db: Session = Depends(get_db)) -> Client:
+    """Corta el tráfico del cliente agregando su IP al address-list de
+    bloqueo (ver services/mikrotik/suspension.py) — la regla de firewall se
+    crea sola la primera vez que hace falta, no requiere un paso aparte."""
     client = _get_client_or_404(db, client_id)
     client.status = ClientStatus.SUSPENDED
     db.commit()
     db.refresh(client)
 
-    if client.pppoe_username:
+    if client.ip_address:
         service = _device_service_for(db, client)
         if service:
             try:
-                service.set_client_enabled(client.pppoe_username, enabled=False)
+                service.suspend_client_ip(client.ip_address)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("No se pudo deshabilitar el secreto PPPoE en el Mikrotik: %s", exc)
+                logger.warning("No se pudo bloquear al cliente %s en el Mikrotik: %s", client.id, exc)
     return client
 
 
@@ -110,14 +147,18 @@ def reactivate_client(client_id: uuid.UUID, db: Session = Depends(get_db)) -> Cl
     db.commit()
     db.refresh(client)
 
-    if client.pppoe_username:
+    if client.ip_address:
         service = _device_service_for(db, client)
         if service:
             try:
-                service.set_client_enabled(client.pppoe_username, enabled=True)
+                service.reactivate_client_ip(client.ip_address)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("No se pudo habilitar el secreto PPPoE en el Mikrotik: %s", exc)
+                logger.warning("No se pudo reactivar al cliente %s en el Mikrotik: %s", client.id, exc)
     return client
+
+
+def _wrap_router_error(exc: Exception, action: str) -> HTTPException:
+    return HTTPException(status_code=502, detail=f"No se pudo {action}: {exc}")
 
 
 def _client_plan_and_ip(db: Session, client: Client) -> tuple[Plan, str]:
@@ -147,7 +188,10 @@ def provision_client_qos(client_id: uuid.UUID, db: Session = Depends(get_db)) ->
     service = _device_service_for(db, client)
     if service is None:
         raise HTTPException(status_code=400, detail="El cliente no tiene equipo Mikrotik asignado.")
-    service.provision_client_qos_ip(plan, client_ip)
+    try:
+        service.provision_client_qos_ip(plan, client_ip)
+    except Exception as exc:  # noqa: BLE001
+        raise _wrap_router_error(exc, "aplicar el QoS")
     return client
 
 
@@ -160,4 +204,7 @@ def remove_client_qos(client_id: uuid.UUID, db: Session = Depends(get_db)) -> No
     service = _device_service_for(db, client)
     if service is None:
         raise HTTPException(status_code=400, detail="El cliente no tiene equipo Mikrotik asignado.")
-    service.remove_client_qos_ip(plan, client_ip)
+    try:
+        service.remove_client_qos_ip(plan, client_ip)
+    except Exception as exc:  # noqa: BLE001
+        raise _wrap_router_error(exc, "quitar el QoS")

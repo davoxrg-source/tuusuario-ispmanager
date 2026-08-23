@@ -107,12 +107,12 @@ def suspend_clients_with_overdue_invoices(db: Session, today: date | None = None
         client.status = ClientStatus.SUSPENDED
         suspended.append(client)
 
-        if client.pppoe_username and client.mikrotik_device_id:
+        if client.ip_address and client.mikrotik_device_id:
             device = db.get(MikrotikDevice, client.mikrotik_device_id)
             if device:
                 try:
                     service = DeviceService(device, decrypt_secret(device.encrypted_password))
-                    service.set_client_enabled(client.pppoe_username, enabled=False)
+                    service.suspend_client_ip(client.ip_address)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("No se pudo suspender en Mikrotik al cliente %s: %s", client.id, exc)
 

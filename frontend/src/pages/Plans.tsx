@@ -1,6 +1,8 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createPlan, deletePlan, listPlans, type PlanInput } from "../api/plans";
+import { createPlan, deletePlan, listPlans, updatePlan, type PlanInput } from "../api/plans";
+import type { Plan } from "../api/types";
+import Field from "../components/Field";
 
 const emptyForm: PlanInput = {
   name: "",
@@ -16,13 +18,21 @@ export default function Plans() {
   const { data: plans = [] } = useQuery({ queryKey: ["plans"], queryFn: listPlans });
   const [form, setForm] = useState<PlanInput>(emptyForm);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const createMutation = useMutation({
     mutationFn: createPlan,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["plans"] });
-      setForm(emptyForm);
-      setShowForm(false);
+      closeForm();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: PlanInput }) => updatePlan(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["plans"] });
+      closeForm();
     },
   });
 
@@ -31,71 +41,102 @@ export default function Plans() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["plans"] }),
   });
 
+  function closeForm() {
+    setForm(emptyForm);
+    setEditingId(null);
+    setShowForm(false);
+  }
+
+  function startEdit(plan: Plan) {
+    setForm({
+      name: plan.name,
+      download_speed_mbps: plan.download_speed_mbps,
+      upload_speed_mbps: plan.upload_speed_mbps,
+      price: plan.price,
+      currency: plan.currency,
+      guaranteed_floor_percent: plan.guaranteed_floor_percent,
+    });
+    setEditingId(plan.id);
+    setShowForm(true);
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    createMutation.mutate(form);
+    if (editingId) {
+      updateMutation.mutate({ id: editingId, payload: form });
+    } else {
+      createMutation.mutate(form);
+    }
   }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-slate-800">Planes</h1>
-        <button onClick={() => setShowForm((s) => !s)} className="bg-slate-900 text-white text-sm rounded px-4 py-2">
+        <button
+          onClick={() => (showForm ? closeForm() : setShowForm(true))}
+          className="bg-slate-900 text-white text-sm rounded px-4 py-2"
+        >
           {showForm ? "Cancelar" : "Nuevo plan"}
         </button>
       </div>
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-5 grid grid-cols-2 gap-4">
-          <input
-            required
-            placeholder="Nombre del plan"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="border rounded px-3 py-2 text-sm"
-          />
-          <input
-            type="number"
-            placeholder="Precio"
-            value={form.price}
-            onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
-            className="border rounded px-3 py-2 text-sm"
-          />
-          <input
-            type="number"
-            placeholder="Bajada (Mbps)"
-            value={form.download_speed_mbps}
-            onChange={(e) => setForm({ ...form, download_speed_mbps: Number(e.target.value) })}
-            className="border rounded px-3 py-2 text-sm"
-          />
-          <input
-            type="number"
-            placeholder="Subida (Mbps)"
-            value={form.upload_speed_mbps}
-            onChange={(e) => setForm({ ...form, upload_speed_mbps: Number(e.target.value) })}
-            className="border rounded px-3 py-2 text-sm"
-          />
-          <div>
+          <h2 className="col-span-2 text-sm font-medium text-slate-600 -mb-2">
+            {editingId ? "Editar plan" : "Nuevo plan"}
+          </h2>
+          <Field label="Nombre del plan">
+            <input
+              required
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field label="Precio">
+            <input
+              type="number"
+              value={form.price}
+              onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field label="Bajada (Mbps)">
+            <input
+              type="number"
+              value={form.download_speed_mbps}
+              onChange={(e) => setForm({ ...form, download_speed_mbps: Number(e.target.value) })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field label="Subida (Mbps)">
+            <input
+              type="number"
+              value={form.upload_speed_mbps}
+              onChange={(e) => setForm({ ...form, upload_speed_mbps: Number(e.target.value) })}
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+          <Field
+            label="Piso garantizado (%)"
+            hint="% del plan que el cliente mantiene garantizado aunque el enlace esté saturado (QoS). Puede hacer ráfaga hasta el 100% cuando hay banda libre."
+          >
             <input
               type="number"
               min={1}
               max={100}
-              placeholder="Piso garantizado (%)"
               value={form.guaranteed_floor_percent}
               onChange={(e) => setForm({ ...form, guaranteed_floor_percent: Number(e.target.value) })}
               className="border rounded px-3 py-2 text-sm w-full"
             />
-            <p className="text-xs text-slate-400 mt-1">
-              % del plan que el cliente mantiene garantizado aunque el enlace esté saturado (QoS).
-              Puede hacer ráfaga hasta el 100% cuando hay banda libre.
-            </p>
-          </div>
+          </Field>
           <button
             type="submit"
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || updateMutation.isPending}
             className="col-span-2 bg-slate-900 text-white text-sm rounded py-2 disabled:opacity-50"
           >
-            Guardar plan
+            {editingId ? "Actualizar plan" : "Guardar plan"}
           </button>
         </form>
       )}
@@ -122,7 +163,10 @@ export default function Plans() {
                 <td className="px-4 py-2">
                   {plan.currency} {Number(plan.price).toFixed(2)}
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-2 space-x-2">
+                  <button onClick={() => startEdit(plan)} className="text-xs text-blue-600 hover:underline">
+                    Editar
+                  </button>
                   <button
                     onClick={() => deleteMutation.mutate(plan.id)}
                     className="text-xs text-red-600 hover:underline"

@@ -191,7 +191,6 @@ export interface Client {
   address: string | null;
   plan_id: string | null;
   mikrotik_device_id: string | null;
-  pppoe_username: string | null;
   ip_address: string | null;
   status: ClientStatus;
 }
@@ -204,8 +203,6 @@ export interface ClientInput {
   address?: string | null;
   plan_id?: string | null;
   mikrotik_device_id?: string | null;
-  pppoe_username?: string | null;
-  pppoe_password?: string | null;
   ip_address?: string | null;
 }
 

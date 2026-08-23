@@ -167,6 +167,8 @@ def test_provision_client_qos_ip_only_touches_address_list(monkeypatch):
     class FakeApi:
         def __call__(self, cmd, **kwargs):
             calls.append((cmd, kwargs))
+            if cmd == "/ip/firewall/address-list/print":
+                return iter([])  # lista vacía: el cliente todavía no está
             return iter([])
 
     @contextmanager
@@ -181,14 +183,48 @@ def test_provision_client_qos_ip_only_touches_address_list(monkeypatch):
     service = DeviceService(_fake_device(), password="unused")
     service.provision_client_qos_ip(plan, "10.0.0.5")
 
-    # Aprovisionar un cliente es UNA sola llamada -- no crea ningún objeto
-    # nuevo, solo lo agrega al address-list de su plan.
+    # Aprovisionar un cliente es: revisar si ya está (para ser idempotente,
+    # ver el test de abajo) y, si no, UNA sola llamada de alta -- no crea
+    # ningún objeto nuevo, solo lo agrega al address-list de su plan.
     assert calls == [
+        ("/ip/firewall/address-list/print", {}),
         (
             "/ip/firewall/address-list/add",
             {"list": qos.address_list_name(qos.plan_ref(plan)), "address": "10.0.0.5", "comment": "ispmanager-qos"},
-        )
+        ),
     ]
+
+
+def test_provision_client_qos_ip_is_idempotent_if_already_in_list(monkeypatch):
+    """Reproduce el bug real visto contra el CCR2004: aplicar QoS dos veces
+    (o a un cliente que ya estaba provisionado) tiraba "failure: already
+    have such entry" de RouterOS con un 500 opaco en el panel. Provisionar
+    debe poder repetirse sin error."""
+    plan = _fake_plan()
+    addr_list = qos.address_list_name(qos.plan_ref(plan))
+    add_calls: list[dict] = []
+
+    class FakeApi:
+        def __call__(self, cmd, **kwargs):
+            if cmd == "/ip/firewall/address-list/print":
+                return iter([{".id": "*1", "list": addr_list, "address": "10.0.0.5"}])
+            if cmd == "/ip/firewall/address-list/add":
+                add_calls.append(kwargs)
+                raise AssertionError("no debería intentar agregar una entrada que ya existe")
+            raise AssertionError(f"comando no esperado: {cmd}")
+
+    @contextmanager
+    def fake_api_connection(**kwargs):
+        yield FakeApi()
+
+    import app.services.mikrotik.device_service as device_service_module
+
+    monkeypatch.setattr(device_service_module.api_client, "api_connection", fake_api_connection)
+
+    service = DeviceService(_fake_device(), password="unused")
+    service.provision_client_qos_ip(plan, "10.0.0.5")  # no debe lanzar
+
+    assert add_calls == []
 
 
 def test_ascii_safe_transliterates_accents():

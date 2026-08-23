@@ -174,17 +174,35 @@ class DeviceService:
             for row in sessions
         ]
 
-    def create_pppoe_secret(self, username: str, password: str, profile: str | None = None) -> None:
-        with self._api() as api:
-            api_client.create_ppp_secret(api, name=username, password=password, profile=profile)
+    def ensure_suspension_bootstrap(self) -> None:
+        """Idempotente: crea la regla de bloqueo de suspendidos si todavía
+        no existe en el equipo. A diferencia del bootstrap de QoS (uno por
+        plan, con preview/apply manual porque son ~30 objetos), acá es una
+        sola regla — se crea sola la primera vez que hace falta."""
+        from app.services.mikrotik import suspension
 
-    def set_client_enabled(self, pppoe_username: str, enabled: bool) -> bool:
         with self._api() as api:
-            return api_client.set_ppp_secret_enabled(api, pppoe_username, enabled)
+            if api_client.get_filter_rule_by_comment(api, suspension.FILTER_RULE_COMMENT):
+                return
+            for command in suspension.build_bootstrap_plan():
+                list(api(command.path, **command.params))
 
-    def remove_pppoe_secret(self, pppoe_username: str) -> bool:
+    def suspend_client_ip(self, client_ip: str) -> None:
+        from app.services.mikrotik import suspension
+
+        self.ensure_suspension_bootstrap()
         with self._api() as api:
-            return api_client.remove_ppp_secret(api, pppoe_username)
+            api_client.add_address_list_entry(
+                api, suspension.SUSPENDED_ADDRESS_LIST, client_ip, comment="ispmanager-suspend"
+            )
+
+    def reactivate_client_ip(self, client_ip: str) -> bool:
+        from app.services.mikrotik import suspension
+
+        with self._api() as api:
+            return api_client.remove_address_list_entry(
+                api, suspension.SUSPENDED_ADDRESS_LIST, client_ip
+            )
 
     def list_ip_addresses(self) -> list[dict]:
         with self._api() as api:

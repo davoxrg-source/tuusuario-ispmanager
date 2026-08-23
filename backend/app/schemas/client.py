@@ -13,12 +13,11 @@ class ClientBase(BaseModel):
     address: str | None = None
     plan_id: uuid.UUID | None = None
     mikrotik_device_id: uuid.UUID | None = None
-    pppoe_username: str | None = None
     ip_address: str | None = None
 
 
 class ClientCreate(ClientBase):
-    pppoe_password: str | None = None
+    pass
 
 
 class ClientUpdate(BaseModel):
@@ -29,8 +28,6 @@ class ClientUpdate(BaseModel):
     address: str | None = None
     plan_id: uuid.UUID | None = None
     mikrotik_device_id: uuid.UUID | None = None
-    pppoe_username: str | None = None
-    pppoe_password: str | None = None
     ip_address: str | None = None
 
 
