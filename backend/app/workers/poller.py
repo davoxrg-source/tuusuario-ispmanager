@@ -1,7 +1,9 @@
 """Tareas en background embebidas en el proceso de uvicorn (sin proceso separado).
 
 - poll_devices_forever: cada DEVICE_POLL_INTERVAL_SECONDS, consulta cada Mikrotik
-  activo y guarda un snapshot en device_metrics.
+  activo, guarda un snapshot en device_metrics, y de paso chequea colas QoS
+  trabadas (ver services/mikrotik/qos_health.py) -- avisa por log si la
+  misma cola sigue trabada 2 ciclos seguidos.
 - run_daily_billing_forever: una vez al día, genera facturas del mes, marca
   vencidas y suspende clientes en mora.
 """
@@ -25,6 +27,31 @@ from app.services.mikrotik.device_service import DeviceService
 logger = logging.getLogger(__name__)
 
 DAY_SECONDS = 24 * 60 * 60
+
+# Colas vistas trabadas en el ciclo ANTERIOR, por equipo -- para no avisar
+# por una lectura sola (podría ser una casualidad de timing). Vive en
+# memoria del proceso a propósito: si el backend se reinicia, empieza de
+# cero, que es aceptable para una alerta operativa (no es auditoría).
+_previously_stuck: dict[str, set[str]] = {}
+
+
+def _check_qos_health(device: MikrotikDevice, service: DeviceService) -> None:
+    device_key = str(device.id)
+    try:
+        stuck_now = set(service.find_stuck_qos_queues())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("No se pudo chequear salud de QoS en %s: %s", device.name, exc)
+        return
+
+    confirmed = stuck_now & _previously_stuck.get(device_key, set())
+    if confirmed:
+        logger.warning(
+            "QoS: %d cola(s) trabada(s) en %s hace 2+ ciclos seguidos (rate=0 con "
+            "backlog sin drenar) -- ver services/mikrotik/qos_health.py, probablemente "
+            "necesite reiniciar el equipo: %s",
+            len(confirmed), device.name, ", ".join(sorted(confirmed)),
+        )
+    _previously_stuck[device_key] = stuck_now
 
 
 def _poll_device_once(db: Session, device: MikrotikDevice) -> None:
@@ -55,6 +82,7 @@ def _poll_device_once(db: Session, device: MikrotikDevice) -> None:
                 interfaces={"list": interfaces},
             )
         )
+        _check_qos_health(device, service)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Polling falló para dispositivo %s (%s): %s", device.name, device.host, exc)
         device.status = DeviceStatus.OFFLINE

@@ -361,6 +361,15 @@ class DeviceService:
                 if row.get("list") == addr_list:
                     list(api("/ip/firewall/address-list/remove", **{".id": row[".id"]}))
 
+    def find_stuck_qos_queues(self) -> list[str]:
+        """Ver services/mikrotik/qos_health.py -- detecta colas con
+        backlog sin drenar (rate=0 sostenido). No confirma nada por sí
+        solo: el llamador (poller) debe verlo en 2+ ciclos seguidos."""
+        from app.services.mikrotik import qos_health
+
+        with self._api() as api:
+            return qos_health.find_stuck_queues(api)
+
     def reboot(self) -> None:
         try:
             with self._api() as api:

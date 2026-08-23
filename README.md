@@ -221,6 +221,29 @@ tráfico destinado al propio equipo (`dst-address-type=local`) antes de
 cualquier otra cosa — pero sigue siendo buena práctica no mezclar la
 interfaz de gestión con la interfaz de clientes cuando sea posible.
 
+## QoS (shaping por plan)
+
+Reemplaza el shaping legacy de wisprosvr01/SequreISP (HFSC en Linux, un
+árbol de objetos por cliente — la causa de sus crashes recurrentes de
+kernel) con shaping nativo de RouterOS: 3 niveles de prioridad por paquete
+sin DPI (paquete chico = tiempo real, puertos configurados = prioridad,
+resto = bulk), piso garantizado + techo de ráfaga por plan. Diseño completo
+y el porqué de cada decisión en `services/mikrotik/qos.py` — verificado
+contra un CCR2004 real, con varios bugs encontrados solo al medir tráfico
+real (no evidentes revisando la configuración).
+
+Se aplica **una vez por plan** (`/devices/{id}/qos-plans/{plan_id}/apply`,
+o `app/cli/bootstrap_qos_plans.py` para todos los planes en uso de una),
+no por cliente — dar de alta/baja un cliente es agregarlo/sacarlo de un
+address-list, no crea ningún objeto nuevo.
+
+**Colas trabadas**: hay un incidente real sin causa raíz confirmada donde
+reconstruir el árbol de colas muy seguido (algo que la operación normal no
+hace) dejó una cola en `rate=0` permanente hasta reiniciar el equipo — ver
+el docstring de `qos.py` para el detalle completo. `qos_health.py`
+detecta el síntoma (colas con backlog sin drenar) desde el poller de
+fondo y avisa por log si persiste 2 ciclos seguidos.
+
 ## Facturación
 
 Una tarea diaria en background:

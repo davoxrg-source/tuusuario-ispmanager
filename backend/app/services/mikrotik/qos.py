@@ -63,6 +63,22 @@ velocidad del plan para evitar bufferbloat en planes lentos — bajarlo lo
 suficiente para importar en un plan de 1 Mbit resultó en ~99% de pérdida
 de paquetes navegando de verdad (ver DEFAULT_PCQ_LIMIT). Como este ISP no
 ofrece planes por debajo de 10 Mbit, queda fijo en el default de RouterOS.
+
+INCIDENTE SIN CAUSA RAÍZ CONFIRMADA — reconstruir el árbol de colas
+completo de los ~55 planes DOS VECES SEGUIDAS en pocos minutos (mientras se
+diagnosticaban los bugs de arriba) dejó una hoja del queue tree en
+`rate=0` permanente: nada mal configurado, el backlog (`queued-bytes`)
+simplemente dejó de drenar y `dropped` seguía creciendo indefinidamente.
+Ni el tamaño de pcq-limit ni la cantidad de colas hermanas (se probó
+aislando a solo 6 de 282 activas) lo explicaron. Un reinicio del equipo lo
+resolvió del todo. No se confirmó el mecanismo interno de RouterOS. La
+operación normal de este sistema NUNCA reconstruye el árbol completo
+así de seguido — un plan se monta una sola vez; dar de alta/baja un
+cliente es solo tocar un address-list — así que se sospecha que el
+problema fue ese volumen inusual de reconfiguración rápida, no algo que
+vaya a aparecer en uso normal. `services/mikrotik/qos_health.py` detecta
+el síntoma (colas con backlog sin drenar) para enterarse por una alerta
+en vez de por un reclamo, ya que no se pudo prevenir la causa de fondo.
 """
 
 from __future__ import annotations
