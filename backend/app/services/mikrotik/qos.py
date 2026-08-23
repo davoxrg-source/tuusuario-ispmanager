@@ -93,6 +93,18 @@ def mark_name(ref: str, tier: str) -> str:
     return f"isp-{ref}-{tier}"
 
 
+def _pcq_limit_for_rate(rate_kbps: int, target_ms: int = 100) -> int:
+    """Tamaño del buffer de PCQ en paquetes, proporcional a la velocidad del
+    plan -- no un valor fijo. El default de RouterOS (50 paquetes) son
+    ~600ms de cola extra en un plan de 1 Mbit bajo carga (bufferbloat real,
+    visto en producción: 382ms de latencia de subida en un cliente de 1
+    Mbit haciendo un test de velocidad) pero es insignificante en uno de
+    100 Mbit. Apunta a `target_ms` de buffering como máximo, asumiendo un
+    tamaño de paquete promedio de 1000 bytes (8000 bits)."""
+    packets = (rate_kbps * target_ms) // 8000
+    return max(10, min(200, packets))
+
+
 def kbps_for_plan(plan: Plan) -> tuple[int, int, int, int]:
     """(ceil_down, ceil_up, floor_down, floor_up) en kbit/s para un plan."""
     ceil_down = plan.download_speed_mbps * 1000
@@ -127,13 +139,15 @@ def build_plan_bootstrap_plan(
 
     # --- 1) PCQ por dirección: separa automáticamente por IP de cliente
     # dentro del pool de este plan, capado al ceil del plan por cliente.
+    # pcq-limit proporcional a la velocidad -- ver _pcq_limit_for_rate.
     commands.append(
         WanCommandResult(
             description=f"Cola PCQ de descarga del plan {plan.name}",
             path="/queue/type/add",
             params={
                 "name": pcq_down, "kind": "pcq",
-                "pcq-rate": f"{ceil_down}k", "pcq-classifier": "dst-address", "pcq-limit": "50",
+                "pcq-rate": f"{ceil_down}k", "pcq-classifier": "dst-address",
+                "pcq-limit": str(_pcq_limit_for_rate(ceil_down)),
             },
         )
     )
@@ -143,7 +157,8 @@ def build_plan_bootstrap_plan(
             path="/queue/type/add",
             params={
                 "name": pcq_up, "kind": "pcq",
-                "pcq-rate": f"{ceil_up}k", "pcq-classifier": "src-address", "pcq-limit": "50",
+                "pcq-rate": f"{ceil_up}k", "pcq-classifier": "src-address",
+                "pcq-limit": str(_pcq_limit_for_rate(ceil_up)),
             },
         )
     )

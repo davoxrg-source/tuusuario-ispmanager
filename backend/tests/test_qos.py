@@ -47,6 +47,33 @@ def test_kbps_for_plan_applies_guaranteed_floor_percent():
     assert (floor_down, floor_up) == (2700, 900)
 
 
+def test_pcq_limit_for_rate_is_proportional_not_fixed():
+    # Reproduce el bug real visto en producción: pcq-limit=50 fijo son
+    # ~600ms de bufferbloat en un plan de 1Mbit (382ms medidos con un test
+    # de velocidad real) pero nada en uno de 100Mbit. El límite tiene que
+    # escalar con la velocidad, no ser una constante.
+    slow = qos._pcq_limit_for_rate(1000)  # 1 Mbit
+    fast = qos._pcq_limit_for_rate(100000)  # 100 Mbit
+    assert slow < fast
+    assert slow == 12  # (1000*100)//8000
+    # Piso: incluso un plan muy lento mantiene algo de buffer para ráfagas.
+    assert qos._pcq_limit_for_rate(64) >= 10
+    # Techo: no crece sin límite en planes muy rápidos.
+    assert qos._pcq_limit_for_rate(1_000_000) <= 200
+
+
+def test_build_plan_bootstrap_pcq_limit_scales_with_plan_speed():
+    slow_plan = _fake_plan(download_speed_mbps=1, upload_speed_mbps=1)
+    fast_plan = _fake_plan(download_speed_mbps=100, upload_speed_mbps=100)
+
+    slow_commands = qos.build_plan_bootstrap_plan(slow_plan, "bridge-lan", "ether1-wan")
+    fast_commands = qos.build_plan_bootstrap_plan(fast_plan, "bridge-lan", "ether1-wan")
+
+    slow_pcq = next(c for c in slow_commands if c.path == "/queue/type/add" and "down" in c.params["name"])
+    fast_pcq = next(c for c in fast_commands if c.path == "/queue/type/add" and "down" in c.params["name"])
+    assert int(slow_pcq.params["pcq-limit"]) < int(fast_pcq.params["pcq-limit"])
+
+
 def test_build_plan_bootstrap_creates_pcq_before_queue_tree_and_never_uses_address_on_tree():
     plan = _fake_plan()
     commands = qos.build_plan_bootstrap_plan(
