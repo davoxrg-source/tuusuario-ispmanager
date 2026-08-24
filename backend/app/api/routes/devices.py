@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_admin
+from app.api.deps import ensure_zone_access, get_current_user, require_admin, zone_scope_filter_ids
 from app.core.security import decrypt_secret, encrypt_secret
 from app.db.session import get_db
 from app.models.mikrotik_device import DeviceStatus, MikrotikDevice
+from app.models.user import User
 from app.schemas.mikrotik_device import (
     ConnectionTestResult,
     DeviceResourceStatus,
@@ -32,8 +33,14 @@ def _get_device_or_404(db: Session, device_id: uuid.UUID) -> MikrotikDevice:
 
 
 @router.get("", response_model=list[MikrotikDeviceRead])
-def list_devices(db: Session = Depends(get_db)) -> list[MikrotikDevice]:
-    return db.query(MikrotikDevice).order_by(MikrotikDevice.name).all()
+def list_devices(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+) -> list[MikrotikDevice]:
+    query = db.query(MikrotikDevice)
+    zone_ids = zone_scope_filter_ids(current_user)
+    if zone_ids is not None:
+        query = query.filter(MikrotikDevice.zone_id.in_(zone_ids))
+    return query.order_by(MikrotikDevice.name).all()
 
 
 @router.get("/discovered", response_model=list[DiscoveredDeviceRead])
@@ -68,8 +75,12 @@ def create_device(payload: MikrotikDeviceCreate, db: Session = Depends(get_db)) 
 
 
 @router.get("/{device_id}", response_model=MikrotikDeviceRead)
-def get_device(device_id: uuid.UUID, db: Session = Depends(get_db)) -> MikrotikDevice:
-    return _get_device_or_404(db, device_id)
+def get_device(
+    device_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+) -> MikrotikDevice:
+    device = _get_device_or_404(db, device_id)
+    ensure_zone_access(current_user, device.zone_id, "Dispositivo no encontrado.")
+    return device
 
 
 @router.patch("/{device_id}", response_model=MikrotikDeviceRead, dependencies=[Depends(require_admin)])

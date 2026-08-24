@@ -5,12 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_admin
+from app.api.deps import ensure_zone_access, get_current_user, require_admin
 from app.db.session import get_db
-from app.models.client import ClientStatus
+from app.models.client import Client, ClientStatus
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.payment import Payment
 from app.models.payment_account import PaymentAccount
+from app.models.user import User
 from app.schemas.billing import (
     AccountBalanceRead,
     BulkInvoiceCharge,
@@ -70,7 +71,13 @@ def bulk_charge_invoices(payload: BulkInvoiceCharge, db: Session = Depends(get_d
 
 
 @router.get("/clients/{client_id}/invoices", response_model=list[InvoiceRead])
-def list_client_invoices(client_id: uuid.UUID, db: Session = Depends(get_db)) -> list[Invoice]:
+def list_client_invoices(
+    client_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+) -> list[Invoice]:
+    client = db.get(Client, client_id)
+    if client is None:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado.")
+    ensure_zone_access(current_user, client.zone_id, "Cliente no encontrado.")
     return (
         db.query(Invoice)
         .filter(Invoice.client_id == client_id)
@@ -80,10 +87,16 @@ def list_client_invoices(client_id: uuid.UUID, db: Session = Depends(get_db)) ->
 
 
 @router.post("/invoices/{invoice_id}/pay", response_model=InvoiceRead)
-def pay_invoice(invoice_id: uuid.UUID, payload: PaymentCreate, db: Session = Depends(get_db)) -> Invoice:
+def pay_invoice(
+    invoice_id: uuid.UUID,
+    payload: PaymentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Invoice:
     invoice = db.get(Invoice, invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Factura no encontrada.")
+    ensure_zone_access(current_user, invoice.client.zone_id, "Factura no encontrada.")
     if invoice.status == InvoiceStatus.PAID:
         raise HTTPException(status_code=400, detail="La factura ya está pagada.")
 
@@ -116,11 +129,15 @@ def pay_invoice(invoice_id: uuid.UUID, payload: PaymentCreate, db: Session = Dep
 
 @router.post("/invoices/{invoice_id}/promise-to-pay", response_model=InvoiceRead)
 def grant_promise_to_pay(
-    invoice_id: uuid.UUID, payload: PromiseToPayCreate, db: Session = Depends(get_db)
+    invoice_id: uuid.UUID,
+    payload: PromiseToPayCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Invoice:
     invoice = db.get(Invoice, invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Factura no encontrada.")
+    ensure_zone_access(current_user, invoice.client.zone_id, "Factura no encontrada.")
     if invoice.status not in (InvoiceStatus.PENDING, InvoiceStatus.OVERDUE):
         raise HTTPException(
             status_code=400, detail="Solo se puede otorgar prórroga a facturas pendientes o vencidas."

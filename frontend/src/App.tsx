@@ -9,6 +9,8 @@ import Clients from "./pages/Clients";
 import Plans from "./pages/Plans";
 import Billing from "./pages/Billing";
 import Settings from "./pages/Settings";
+import Zones from "./pages/Zones";
+import Staff from "./pages/Staff";
 
 export default function App() {
   return (
@@ -28,6 +30,8 @@ export default function App() {
         <Route path="clients" element={<Clients />} />
         <Route path="plans" element={<Plans />} />
         <Route path="billing" element={<Billing />} />
+        <Route path="zones" element={<Zones />} />
+        <Route path="staff" element={<Staff />} />
         <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>

@@ -21,6 +21,8 @@ class ClientBase(BaseModel):
     public_ip_address: str | None = None
     public_ip_provider_interface: str | None = None
     public_ip_lan_interface: str | None = None
+    # Agrupación para acceso por rol (ver app/api/deps.py) -- opcional.
+    zone_id: uuid.UUID | None = None
 
 
 class ClientCreate(ClientBase):
@@ -39,6 +41,7 @@ class ClientUpdate(BaseModel):
     public_ip_address: str | None = None
     public_ip_provider_interface: str | None = None
     public_ip_lan_interface: str | None = None
+    zone_id: uuid.UUID | None = None
 
 
 class ClientRead(ClientBase):

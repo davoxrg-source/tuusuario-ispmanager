@@ -3,15 +3,17 @@ import uuid
 
 from sqlalchemy import String, Boolean
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base, TimestampMixin
 from app.db.types import pg_enum
+from app.models.zone import user_zones
 
 
 class UserRole(str, enum.Enum):
     ADMIN = "admin"
     TECHNICIAN = "technician"
+    FINANCE = "finance"
 
 
 class User(Base, TimestampMixin):
@@ -23,3 +25,7 @@ class User(Base, TimestampMixin):
     hashed_password: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(pg_enum(UserRole, "user_role"), default=UserRole.TECHNICIAN)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Zonas asignadas -- sin efecto si role=ADMIN (acceso total siempre, ver
+    # app/api/deps.py: zone_scope_filter_ids/ensure_zone_access).
+    zones: Mapped[list["Zone"]] = relationship(secondary=user_zones, back_populates="users")  # noqa: F821

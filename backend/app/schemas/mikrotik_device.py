@@ -32,6 +32,9 @@ class MikrotikDeviceBase(BaseModel):
     api_use_tls: bool = False
     ssh_port: int = 22
     username: str
+    # Agrupación para acceso por rol (ver app/api/deps.py) -- opcional,
+    # distinta de `site` (etiqueta de texto libre).
+    zone_id: uuid.UUID | None = None
 
 
 class MikrotikDeviceCreate(MikrotikDeviceBase):
@@ -53,6 +56,7 @@ class MikrotikDeviceUpdate(BaseModel):
     ssh_port: int | None = None
     username: str | None = None
     password: str | None = None
+    zone_id: uuid.UUID | None = None
 
     _validate_host = field_validator("host")(_reject_unroutable_host)
 

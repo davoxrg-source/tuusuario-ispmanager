@@ -3,7 +3,7 @@ import uuid
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -46,6 +46,11 @@ class MikrotikDevice(Base, TimestampMixin):
         pg_enum(DeviceStatus, "device_status"), default=DeviceStatus.UNKNOWN
     )
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Agrupación para acceso por rol (ver app/api/deps.py) -- distinta de
+    # `site` (texto libre, ej. dirección física), no se fusionan.
+    zone_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("zones.id"), nullable=True)
+    zone: Mapped["Zone"] = relationship(back_populates="devices")  # noqa: F821
 
     clients: Mapped[list["Client"]] = relationship(back_populates="mikrotik_device")  # noqa: F821
     metrics: Mapped[list["DeviceMetric"]] = relationship(  # noqa: F821

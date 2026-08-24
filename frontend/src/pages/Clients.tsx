@@ -1,6 +1,8 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  bulkReactivateClients,
+  bulkSuspendClients,
   createClient,
   deleteClient,
   listClients,
@@ -42,6 +44,7 @@ export default function Clients() {
     field: "full_name",
     dir: "asc",
   });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const sortedClients = useMemo(() => {
     const value = (client: (typeof clients)[number]): string => {
@@ -117,6 +120,39 @@ export default function Clients() {
     },
     onError: (err) => alert(axiosErrorMessage(err) ?? "No se pudo quitar el QoS."),
   });
+
+  const bulkSuspendMutation = useMutation({
+    mutationFn: bulkSuspendClients,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      setSelected(new Set());
+      reportBulkFailures(result, "suspender");
+    },
+  });
+
+  const bulkReactivateMutation = useMutation({
+    mutationFn: bulkReactivateClients,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      setSelected(new Set());
+      reportBulkFailures(result, "reactivar");
+    },
+  });
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelected((prev) =>
+      prev.size === sortedClients.length ? new Set() : new Set(sortedClients.map((c) => c.id)),
+    );
+  }
 
   function closeForm() {
     setForm(emptyForm);
@@ -277,10 +313,37 @@ export default function Clients() {
         </form>
       )}
 
+      {selected.size > 0 && (
+        <div className="bg-slate-900 text-white text-sm rounded-lg px-4 py-2 flex items-center gap-4">
+          <span>{selected.size} seleccionados</span>
+          <button
+            onClick={() => bulkSuspendMutation.mutate([...selected])}
+            disabled={bulkSuspendMutation.isPending}
+            className="text-amber-300 hover:underline disabled:opacity-50"
+          >
+            Suspender seleccionados
+          </button>
+          <button
+            onClick={() => bulkReactivateMutation.mutate([...selected])}
+            disabled={bulkReactivateMutation.isPending}
+            className="text-green-300 hover:underline disabled:opacity-50"
+          >
+            Reactivar seleccionados
+          </button>
+        </div>
+      )}
+
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
+              <th className="px-4 py-2 w-8">
+                <input
+                  type="checkbox"
+                  checked={selected.size > 0 && selected.size === sortedClients.length}
+                  onChange={toggleSelectAllVisible}
+                />
+              </th>
               <SortableHeader field="full_name" label="Nombre" sort={sort} onClick={toggleSort} />
               <SortableHeader field="ip_address" label="IP" sort={sort} onClick={toggleSort} />
               <SortableHeader field="plan" label="Plan" sort={sort} onClick={toggleSort} />
@@ -292,6 +355,13 @@ export default function Clients() {
           <tbody>
             {sortedClients.map((client) => (
               <tr key={client.id} className="border-t">
+                <td className="px-4 py-2">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(client.id)}
+                    onChange={() => toggleSelected(client.id)}
+                  />
+                </td>
                 <td className="px-4 py-2">
                   {client.full_name}
                   <div className="text-xs text-slate-400">{client.email}</div>
@@ -381,7 +451,7 @@ export default function Clients() {
             ))}
             {clients.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
                   Aún no hay clientes.
                 </td>
               </tr>
@@ -394,6 +464,13 @@ export default function Clients() {
 }
 
 type SortField = "full_name" | "ip_address" | "plan" | "status" | "is_online";
+
+function reportBulkFailures(result: { results: { id: string; ok: boolean; detail: string | null }[] }, action: string) {
+  const failures = result.results.filter((r) => !r.ok);
+  if (failures.length === 0) return;
+  const lines = failures.map((f) => `${f.id}: ${f.detail ?? "error desconocido"}`);
+  alert(`No se pudo ${action} ${failures.length} de ${result.results.length}:\n${lines.join("\n")}`);
+}
 
 function axiosErrorMessage(err: unknown): string | null {
   if (typeof err === "object" && err !== null && "response" in err) {

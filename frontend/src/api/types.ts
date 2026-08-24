@@ -1,4 +1,15 @@
-export type UserRole = "admin" | "technician";
+export type UserRole = "admin" | "technician" | "finance";
+
+export interface Zone {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
+export interface ZoneInput {
+  name: string;
+  description?: string | null;
+}
 
 export interface UserRead {
   id: string;
@@ -6,6 +17,16 @@ export interface UserRead {
   email: string;
   role: UserRole;
   is_active: boolean;
+  zones: Zone[];
+}
+
+export interface UserInput {
+  full_name: string;
+  email: string;
+  password?: string;
+  role: UserRole;
+  is_active?: boolean;
+  zone_ids: string[];
 }
 
 export type DeviceStatus = "online" | "offline" | "unknown";
@@ -24,6 +45,7 @@ export interface MikrotikDevice {
   routeros_version: string | null;
   status: DeviceStatus;
   last_seen_at: string | null;
+  zone_id: string | null;
 }
 
 export interface DiscoveredDevice {
@@ -45,6 +67,7 @@ export interface MikrotikDeviceInput {
   ssh_port: number;
   username: string;
   password: string;
+  zone_id?: string | null;
 }
 
 export interface ConnectionTestResult {
@@ -216,6 +239,7 @@ export interface Client {
   // estado administrativo/de facturación del contrato.
   is_online: boolean;
   last_seen_at: string | null;
+  zone_id: string | null;
 }
 
 export interface ClientInput {
@@ -230,6 +254,7 @@ export interface ClientInput {
   public_ip_address?: string | null;
   public_ip_provider_interface?: string | null;
   public_ip_lan_interface?: string | null;
+  zone_id?: string | null;
 }
 
 export type InvoiceStatus = "pending" | "paid" | "overdue" | "cancelled";

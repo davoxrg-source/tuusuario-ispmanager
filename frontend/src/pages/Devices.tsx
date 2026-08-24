@@ -10,6 +10,7 @@ import {
   resetDeviceToDefaults,
   testConnection,
 } from "../api/devices";
+import { listZones } from "../api/zones";
 import type { DiscoveredDevice, MikrotikDeviceInput } from "../api/types";
 
 const emptyForm: MikrotikDeviceInput = {
@@ -22,11 +23,13 @@ const emptyForm: MikrotikDeviceInput = {
   ssh_port: 22,
   username: "admin",
   password: "",
+  zone_id: null,
 };
 
 export default function Devices() {
   const queryClient = useQueryClient();
   const { data: devices = [], isLoading } = useQuery({ queryKey: ["devices"], queryFn: listDevices });
+  const { data: zones = [] } = useQuery({ queryKey: ["zones"], queryFn: listZones });
   const { data: discovered = [] } = useQuery({
     queryKey: ["devices-discovered"],
     queryFn: listDiscoveredDevices,
@@ -174,6 +177,18 @@ export default function Devices() {
             onChange={(e) => setForm({ ...form, site: e.target.value })}
             className="border rounded px-3 py-2 text-sm"
           />
+          <select
+            value={form.zone_id ?? ""}
+            onChange={(e) => setForm({ ...form, zone_id: e.target.value || null })}
+            className="border rounded px-3 py-2 text-sm bg-white"
+          >
+            <option value="">Sin zona</option>
+            {zones.map((zone) => (
+              <option key={zone.id} value={zone.id}>
+                {zone.name}
+              </option>
+            ))}
+          </select>
           <input
             required
             placeholder="Host / IP"

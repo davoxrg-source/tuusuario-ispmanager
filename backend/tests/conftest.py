@@ -48,6 +48,8 @@ def db_session():
     from app.models.payment import Payment
     from app.models.payment_account import PaymentAccount
     from app.models.plan import Plan
+    from app.models.user import User
+    from app.models.zone import Zone
 
     session = SessionLocal()
     try:
@@ -60,6 +62,11 @@ def db_session():
         session.query(PaymentAccount).delete()
         session.query(Plan).delete()
         session.query(MikrotikDevice).delete()
+        # User antes que Zone: borrar un User limpia sus filas de
+        # user_zones solo (ondelete=CASCADE ahí), pero Client/MikrotikDevice
+        # ya se borraron arriba, así que Zone queda libre para borrarse.
+        session.query(User).delete()
+        session.query(Zone).delete()
         # Reestablece el invariante "siempre hay exactamente una fila" que
         # espera get_billing_settings(), por si algún test la borró/creó otra.
         session.query(BillingSettings).delete()

@@ -4,12 +4,13 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_admin
+from app.api.deps import ensure_zone_access, get_current_user, require_admin, zone_scope_filter_ids
 from app.core.security import decrypt_secret
 from app.db.session import get_db
 from app.models.client import Client
 from app.models.mikrotik_device import MikrotikDevice
 from app.models.plan import Plan
+from app.models.user import User
 from app.schemas.client import BulkClientAction, ClientCreate, ClientRead, ClientUpdate
 from app.schemas.common import BulkActionResult, BulkActionResultItem
 from app.services.clients.status import reactivate_client_service, suspend_client_service
@@ -37,8 +38,14 @@ def _device_service_for(db: Session, client: Client) -> DeviceService | None:
 
 
 @router.get("", response_model=list[ClientRead])
-def list_clients(db: Session = Depends(get_db)) -> list[Client]:
-    return db.query(Client).order_by(Client.full_name).all()
+def list_clients(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+) -> list[Client]:
+    query = db.query(Client)
+    zone_ids = zone_scope_filter_ids(current_user)
+    if zone_ids is not None:
+        query = query.filter(Client.zone_id.in_(zone_ids))
+    return query.order_by(Client.full_name).all()
 
 
 # Registradas antes de las rutas "/{client_id}/..." a propósito: si fueran
@@ -167,12 +174,21 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)) -> Clien
 
 
 @router.get("/{client_id}", response_model=ClientRead)
-def get_client(client_id: uuid.UUID, db: Session = Depends(get_db)) -> Client:
-    return _get_client_or_404(db, client_id)
+def get_client(
+    client_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+) -> Client:
+    client = _get_client_or_404(db, client_id)
+    ensure_zone_access(current_user, client.zone_id, "Cliente no encontrado.")
+    return client
 
 
 @router.patch("/{client_id}", response_model=ClientRead)
-def update_client(client_id: uuid.UUID, payload: ClientUpdate, db: Session = Depends(get_db)) -> Client:
+def update_client(
+    client_id: uuid.UUID,
+    payload: ClientUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Client:
     """Guardar un cliente siempre deja su QoS al día (ver _sync_client_qos):
     si cambió plan/IP/equipo, lo saca de la lista vieja y lo pone en la
     nueva; si no cambió nada de eso, igual se asegura de que esté
@@ -181,6 +197,7 @@ def update_client(client_id: uuid.UUID, payload: ClientUpdate, db: Session = Dep
     crearon primero, seguían ganando y el cliente quedaba shapeado con la
     velocidad anterior (bug real, visto en producción antes de este fix)."""
     client = _get_client_or_404(db, client_id)
+    ensure_zone_access(current_user, client.zone_id, "Cliente no encontrado.")
     old_plan_id, old_ip, old_device_id = client.plan_id, client.ip_address, client.mikrotik_device_id
     old_public_ip = client.public_ip_address
     old_provider_iface = client.public_ip_provider_interface
@@ -197,24 +214,33 @@ def update_client(client_id: uuid.UUID, payload: ClientUpdate, db: Session = Dep
 
 
 @router.delete("/{client_id}", status_code=204)
-def delete_client(client_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
+def delete_client(
+    client_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+) -> None:
     client = _get_client_or_404(db, client_id)
+    ensure_zone_access(current_user, client.zone_id, "Cliente no encontrado.")
     db.delete(client)
     db.commit()
 
 
 @router.post("/{client_id}/suspend", response_model=ClientRead)
-def suspend_client(client_id: uuid.UUID, db: Session = Depends(get_db)) -> Client:
+def suspend_client(
+    client_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+) -> Client:
     """Corta el tráfico del cliente agregando su IP al address-list de
     bloqueo (ver services/mikrotik/suspension.py) — la regla de firewall se
     crea sola la primera vez que hace falta, no requiere un paso aparte."""
     client = _get_client_or_404(db, client_id)
+    ensure_zone_access(current_user, client.zone_id, "Cliente no encontrado.")
     return suspend_client_service(db, client)
 
 
 @router.post("/{client_id}/reactivate", response_model=ClientRead)
-def reactivate_client(client_id: uuid.UUID, db: Session = Depends(get_db)) -> Client:
+def reactivate_client(
+    client_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+) -> Client:
     client = _get_client_or_404(db, client_id)
+    ensure_zone_access(current_user, client.zone_id, "Cliente no encontrado.")
     return reactivate_client_service(db, client)
 
 

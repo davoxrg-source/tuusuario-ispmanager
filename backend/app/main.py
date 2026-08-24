@@ -20,6 +20,8 @@ from app.api.routes import (
     plans,
     tickets,
     traffic,
+    users,
+    zones,
 )
 from app.core.config import get_settings
 from app.services.mikrotik.discovery import listener as mndp_listener
@@ -93,6 +95,8 @@ app.include_router(billing_settings.router, prefix=api_prefix)
 app.include_router(interfaces.router, prefix=api_prefix)
 app.include_router(traffic.router, prefix=api_prefix)
 app.include_router(tickets.router, prefix=api_prefix)
+app.include_router(users.router, prefix=api_prefix)
+app.include_router(zones.router, prefix=api_prefix)
 
 
 @app.get("/api/health")

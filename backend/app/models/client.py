@@ -65,6 +65,11 @@ class Client(Base, TimestampMixin):
     pending_credit: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
     pending_reconnection_fee: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Agrupación para acceso por rol (ver app/api/deps.py) -- opcional, "sin
+    # zona" es un estado válido, no un error.
+    zone_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("zones.id"), nullable=True)
+    zone: Mapped["Zone"] = relationship(back_populates="clients")  # noqa: F821
+
     # id del contrato en el sistema legacy (sequreisp_production) que este
     # registro reemplaza — cada contrato legacy es un cliente acá (un
     # cliente legacy con 2 contratos activos queda como 2 registros, uno

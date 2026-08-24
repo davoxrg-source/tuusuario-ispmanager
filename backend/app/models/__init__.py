@@ -10,6 +10,7 @@ from app.models.plan import Plan
 from app.models.poll_attempt import PollAttempt, PollAttemptStatus, PollJobType
 from app.models.ticket import Ticket, TicketCategory, TicketPriority, TicketReply, TicketStatus
 from app.models.user import User
+from app.models.zone import Zone, user_zones
 
 __all__ = [
     "BillingSettings",
@@ -35,4 +36,6 @@ __all__ = [
     "TicketReply",
     "TicketStatus",
     "User",
+    "Zone",
+    "user_zones",
 ]
