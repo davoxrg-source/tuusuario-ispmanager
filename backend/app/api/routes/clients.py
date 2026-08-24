@@ -1,17 +1,24 @@
 import logging
+import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import ensure_zone_access, get_current_user, require_admin, zone_scope_filter_ids
-from app.core.security import decrypt_secret
+from app.core.security import decrypt_secret, hash_password
 from app.db.session import get_db
 from app.models.client import Client
 from app.models.mikrotik_device import MikrotikDevice
 from app.models.plan import Plan
 from app.models.user import User
-from app.schemas.client import BulkClientAction, ClientCreate, ClientRead, ClientUpdate
+from app.schemas.client import (
+    BulkClientAction,
+    ClientCreate,
+    ClientRead,
+    ClientUpdate,
+    PortalActivateRead,
+)
 from app.schemas.common import BulkActionResult, BulkActionResultItem
 from app.services.clients.status import reactivate_client_service, suspend_client_service
 from app.services.mikrotik.device_service import DeviceService
@@ -242,6 +249,35 @@ def reactivate_client(
     client = _get_client_or_404(db, client_id)
     ensure_zone_access(current_user, client.zone_id, "Cliente no encontrado.")
     return reactivate_client_service(db, client)
+
+
+# Activar/resetear/revocar el portal es admin-only, mismo criterio que la
+# gestión de personal -- es una acción de más peso que el resto de la ficha
+# del cliente (crea una credencial que le da acceso externo a su propia
+# información).
+@router.post("/{client_id}/portal/activate", response_model=PortalActivateRead, dependencies=[Depends(require_admin)])
+def activate_client_portal(client_id: uuid.UUID, db: Session = Depends(get_db)) -> PortalActivateRead:
+    """Genera una contraseña nueva y la activa/resetea -- misma acción sirve
+    para 'activar por primera vez' y para 'resetear'. La contraseña viaja en
+    texto plano UNA sola vez acá; el staff la copia y se la da al cliente
+    por fuera del sistema (no hay envío automático todavía)."""
+    client = _get_client_or_404(db, client_id)
+    if client.identification is None:
+        raise HTTPException(
+            status_code=400,
+            detail="El cliente necesita un número de identificación cargado antes de activar el portal.",
+        )
+    password = secrets.token_urlsafe(9)
+    client.hashed_password = hash_password(password)
+    db.commit()
+    return PortalActivateRead(password=password)
+
+
+@router.delete("/{client_id}/portal", status_code=204, dependencies=[Depends(require_admin)])
+def revoke_client_portal(client_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
+    client = _get_client_or_404(db, client_id)
+    client.hashed_password = None
+    db.commit()
 
 
 def _wrap_router_error(exc: Exception, action: str) -> HTTPException:

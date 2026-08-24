@@ -9,6 +9,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
+PORTAL_DIR="$PROJECT_ROOT/frontend-portal"
 
 echo "== 1/6: Paquetes de sistema (python3-venv, postgresql, nodejs) =="
 sudo apt-get update
@@ -37,8 +38,11 @@ fi
 echo "== 4/6: Migraciones de base de datos =="
 alembic upgrade head
 
-echo "== 5/6: Build del frontend =="
+echo "== 5/6: Build del frontend (panel de staff + portal de clientes) =="
 cd "$FRONTEND_DIR"
+npm install
+npm run build
+cd "$PORTAL_DIR"
 npm install
 npm run build
 
@@ -55,4 +59,5 @@ echo "Listo. Verifica con: systemctl status ispmanager-backend"
 echo "Backup diario de la base (3am) programado -- ver: systemctl list-timers ispmanager-backup.timer"
 echo "Crea el primer usuario admin con:"
 echo "  cd $BACKEND_DIR && source .venv/bin/activate && python -m app.cli.seed_admin admin@example.com \"Nombre\" \"contraseña-segura\""
-echo "Panel disponible en http://<IP-del-servidor>:8000"
+echo "Panel de staff disponible en http://<IP-del-servidor>:8000"
+echo "Portal de clientes disponible en http://<IP-del-servidor>:8000/portal"

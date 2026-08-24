@@ -251,6 +251,11 @@ export interface Client {
   zone_id: string | null;
   latitude: number | null;
   longitude: number | null;
+  portal_active: boolean;
+}
+
+export interface PortalActivateResult {
+  password: string;
 }
 
 export interface ClientInput {
@@ -476,4 +481,20 @@ export interface ContractSignInput {
   signer_name: string;
   signer_identification?: string | null;
   signature_image: string;
+}
+
+export type PaymentReportStatus = "pending" | "confirmed" | "rejected";
+
+export interface PaymentReport {
+  id: string;
+  invoice_id: string;
+  client_id: string;
+  amount: number;
+  method: string;
+  reference: string | null;
+  note: string | null;
+  status: PaymentReportStatus;
+  reported_at: string;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
 }

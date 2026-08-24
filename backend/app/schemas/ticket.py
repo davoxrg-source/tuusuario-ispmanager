@@ -15,7 +15,8 @@ class TicketReplyRead(BaseModel):
 
     id: uuid.UUID
     ticket_id: uuid.UUID
-    author_user_id: uuid.UUID
+    author_user_id: uuid.UUID | None
+    author_client_id: uuid.UUID | None
     body: str
     created_at: datetime
 
@@ -43,7 +44,8 @@ class TicketRead(BaseModel):
 
     id: uuid.UUID
     client_id: uuid.UUID | None
-    created_by_user_id: uuid.UUID
+    created_by_user_id: uuid.UUID | None
+    created_by_client_id: uuid.UUID | None
     assigned_to_user_id: uuid.UUID | None
     subject: str
     description: str

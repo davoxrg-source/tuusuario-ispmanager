@@ -6,9 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
 from app.db.session import get_db
+from app.models.client import Client
 from app.models.user import User, UserRole
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+portal_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/portal/auth/login")
 
 
 def get_current_user(
@@ -31,6 +33,33 @@ def get_current_user(
     if user is None or not user.is_active:
         raise credentials_error
     return user
+
+
+def get_current_client(
+    token: str = Depends(portal_oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> Client:
+    """Paralelo a get_current_user pero para Client -- no comparte nada con
+    el auth de staff, ni siquiera el token (tokenUrl distinto). No bloquea
+    por ClientStatus: un cliente SUSPENDED tiene que poder entrar, ver que
+    está suspendido, y reportar el pago para reactivarse -- solo se bloquea
+    si nunca se activó el portal (hashed_password is None)."""
+    credentials_error = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="No se pudo validar las credenciales.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    subject = decode_access_token(token)
+    if subject is None:
+        raise credentials_error
+    try:
+        client_id = uuid.UUID(subject)
+    except ValueError:
+        raise credentials_error
+    client = db.get(Client, client_id)
+    if client is None or client.hashed_password is None:
+        raise credentials_error
+    return client
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:

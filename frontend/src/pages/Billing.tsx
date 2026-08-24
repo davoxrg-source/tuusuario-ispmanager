@@ -2,10 +2,13 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   bulkChargeInvoices,
+  confirmPaymentReport,
   getBalanceByAccount,
   listInvoices,
   listPaymentAccounts,
+  listPaymentReports,
   payInvoice,
+  rejectPaymentReport,
 } from "../api/billing";
 import { listClients } from "../api/clients";
 
@@ -21,6 +24,10 @@ export default function Billing() {
     queryKey: ["balance-by-account"],
     queryFn: getBalanceByAccount,
   });
+  const { data: pendingReports = [] } = useQuery({
+    queryKey: ["payment-reports", "pending"],
+    queryFn: () => listPaymentReports("pending"),
+  });
   const [payingId, setPayingId] = useState<string | null>(null);
   const [accountByInvoice, setAccountByInvoice] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -35,6 +42,20 @@ export default function Billing() {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
       setPayingId(null);
     },
+  });
+
+  const confirmReportMutation = useMutation({
+    mutationFn: confirmPaymentReport,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["payment-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["balance-by-account"] });
+    },
+  });
+
+  const rejectReportMutation = useMutation({
+    mutationFn: rejectPaymentReport,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["payment-reports"] }),
   });
 
   const bulkChargeMutation = useMutation({
@@ -93,6 +114,51 @@ export default function Billing() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {pendingReports.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-5">
+          <h2 className="text-sm font-medium text-slate-600 mb-3">
+            Pagos reportados por clientes desde el portal (pendientes de verificar)
+          </h2>
+          <table className="w-full text-sm">
+            <thead className="text-left text-slate-500">
+              <tr>
+                <th className="py-1">Cliente</th>
+                <th className="py-1">Monto</th>
+                <th className="py-1">Método</th>
+                <th className="py-1">Referencia</th>
+                <th className="py-1"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingReports.map((r) => (
+                <tr key={r.id} className="border-t">
+                  <td className="py-1">{clientName(r.client_id)}</td>
+                  <td className="py-1">${Number(r.amount).toFixed(2)}</td>
+                  <td className="py-1">{r.method}</td>
+                  <td className="py-1 font-mono text-xs">{r.reference ?? "—"}</td>
+                  <td className="py-1 space-x-2">
+                    <button
+                      onClick={() => confirmReportMutation.mutate(r.id)}
+                      disabled={confirmReportMutation.isPending}
+                      className="text-xs text-green-600 hover:underline disabled:opacity-50"
+                    >
+                      Confirmar
+                    </button>
+                    <button
+                      onClick={() => rejectReportMutation.mutate(r.id)}
+                      disabled={rejectReportMutation.isPending}
+                      className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                    >
+                      Rechazar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

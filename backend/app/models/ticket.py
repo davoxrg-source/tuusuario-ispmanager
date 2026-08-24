@@ -36,10 +36,12 @@ class Ticket(Base, TimestampMixin):
     __tablename__ = "tickets"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # Sin portal de autoservicio de clientes en el sistema hoy -- los
-    # tickets los crea/gestiona el staff (User) en nombre de un cliente.
     client_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("clients.id"), nullable=True)
-    created_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    # Un ticket lo crea el staff (User) O el propio cliente desde el portal
+    # (Client) -- exactamente uno de los dos está seteado, nunca ambos ni
+    # ninguno; se valida en la ruta que crea el ticket, no acá.
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by_client_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("clients.id"), nullable=True)
     assigned_to_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     subject: Mapped[str] = mapped_column(String(200))
@@ -53,7 +55,10 @@ class Ticket(Base, TimestampMixin):
         pg_enum(TicketCategory, "ticket_category"), default=TicketCategory.OTHER
     )
 
-    client: Mapped["Client"] = relationship()  # noqa: F821
+    # foreign_keys explícito: ahora hay 2 FKs a clients.id en esta tabla
+    # (client_id y created_by_client_id), sin esto SQLAlchemy no sabe cuál
+    # usar para esta relación.
+    client: Mapped["Client"] = relationship(foreign_keys=[client_id])  # noqa: F821
     replies: Mapped[list["TicketReply"]] = relationship(
         back_populates="ticket", cascade="all, delete-orphan", order_by="TicketReply.created_at"
     )
@@ -64,7 +69,9 @@ class TicketReply(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     ticket_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tickets.id"))
-    author_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    # Mismo criterio que Ticket.created_by_*: exactamente uno de los dos.
+    author_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    author_client_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("clients.id"), nullable=True)
     body: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -74,6 +74,17 @@ class Client(Base, TimestampMixin):
     zone_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("zones.id"), nullable=True)
     zone: Mapped["Zone"] = relationship(back_populates="clients")  # noqa: F821
 
+    # Acceso al portal de autoservicio (ver app/api/routes/portal_auth.py) --
+    # nullable a propósito: "portal no activado" es un estado válido para la
+    # mayoría de los 770 clientes migrados, no un error. Lo activa/resetea
+    # el staff (POST /clients/{id}/portal/activate), el cliente nunca se
+    # auto-registra.
+    hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    @property
+    def portal_active(self) -> bool:
+        return self.hashed_password is not None
+
     # id del contrato en el sistema legacy (sequreisp_production) que este
     # registro reemplaza — cada contrato legacy es un cliente acá (un
     # cliente legacy con 2 contratos activos queda como 2 registros, uno

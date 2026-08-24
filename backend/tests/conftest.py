@@ -50,7 +50,9 @@ def db_session():
     from app.models.invoice import Invoice
     from app.models.payment import Payment
     from app.models.payment_account import PaymentAccount
+    from app.models.payment_report import PaymentReport
     from app.models.plan import Plan
+    from app.models.ticket import Ticket, TicketReply
     from app.models.user import User
     from app.models.zone import Zone
 
@@ -71,6 +73,14 @@ def db_session():
         # Installation antes que Client -- el DELETE en bloque de acá abajo
         # es un DELETE crudo, no pasa por el cascade del ORM (Client.installations).
         session.query(Installation).delete()
+        # TicketReply antes que Ticket (FK ticket_id) -- ambos referencian
+        # User/Client sin ondelete, así que también tienen que irse antes.
+        session.query(TicketReply).delete()
+        session.query(Ticket).delete()
+        # PaymentReport antes que Invoice/Client -- referencia a ambos sin
+        # ondelete (la cascada real es Invoice.payment_reports, que no
+        # aplica acá por ser un DELETE en bloque, no vía ORM).
+        session.query(PaymentReport).delete()
         session.query(Payment).delete()
         session.query(Invoice).delete()
         session.query(Client).delete()

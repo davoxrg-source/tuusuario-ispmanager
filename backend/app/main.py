@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
@@ -21,6 +22,8 @@ from app.api.routes import (
     inventory,
     monitoring,
     plans,
+    portal,
+    portal_auth,
     tickets,
     traffic,
     users,
@@ -104,6 +107,8 @@ app.include_router(zones.router, prefix=api_prefix)
 app.include_router(inventory.router, prefix=api_prefix)
 app.include_router(installations.router, prefix=api_prefix)
 app.include_router(contracts.router, prefix=api_prefix)
+app.include_router(portal_auth.router, prefix=api_prefix)
+app.include_router(portal.router, prefix=api_prefix)
 
 
 @app.get("/api/health")
@@ -129,7 +134,22 @@ class SpaStaticFiles(StaticFiles):
             raise
 
 
-# Sirve el build de React (frontend/dist) para tener un único servicio/puerto.
+# Sirve los dos builds de React (staff en /, portal de clientes en /portal)
+# para tener un único servicio/puerto -- el mount de /portal se registra
+# ANTES que el de "/" a propósito: Starlette evalúa los mounts en orden de
+# registro, y "/" como catch-all capturaría cualquier ruta si fuera primero.
+portal_dist = Path(__file__).resolve().parent.parent.parent / "frontend-portal" / "dist"
+if portal_dist.exists():
+    # El patrón de Mount("/portal", ...) de Starlette solo matchea rutas que
+    # empiecen con "/portal/" -- "/portal" pelado (sin barra) no matchea y
+    # cae al mount catch-all de "/" de abajo, sirviendo el bundle de staff
+    # por error. Redirect explícito para ese caso puntual.
+    @app.get("/portal", include_in_schema=False)
+    def _portal_root_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/portal/")
+
+    app.mount("/portal", SpaStaticFiles(directory=portal_dist, html=True), name="portal")
+
 frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 if frontend_dist.exists():
     app.mount("/", SpaStaticFiles(directory=frontend_dist, html=True), name="frontend")

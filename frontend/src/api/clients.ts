@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { BulkActionResult, Client, ClientInput } from "./types";
+import type { BulkActionResult, Client, ClientInput, PortalActivateResult } from "./types";
 
 export async function listClients(): Promise<Client[]> {
   const { data } = await apiClient.get<Client[]>("/clients");
@@ -42,4 +42,16 @@ export async function bulkReactivateClients(clientIds: string[]): Promise<BulkAc
     client_ids: clientIds,
   });
   return data;
+}
+
+// Activar y resetear son la misma acción en el backend: siempre genera una
+// contraseña nueva. La respuesta trae la contraseña en texto plano UNA sola
+// vez -- no hay forma de volver a leerla después.
+export async function activateClientPortal(id: string): Promise<PortalActivateResult> {
+  const { data } = await apiClient.post<PortalActivateResult>(`/clients/${id}/portal/activate`);
+  return data;
+}
+
+export async function revokeClientPortal(id: string): Promise<void> {
+  await apiClient.delete(`/clients/${id}/portal`);
 }

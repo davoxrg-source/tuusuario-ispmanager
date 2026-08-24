@@ -55,7 +55,15 @@ class ClientRead(ClientBase):
     status: ClientStatus
     is_online: bool
     last_seen_at: datetime | None = None
+    portal_active: bool = False
 
 
 class BulkClientAction(BaseModel):
     client_ids: list[uuid.UUID]
+
+
+class PortalActivateRead(BaseModel):
+    """Respuesta de activar/resetear el portal -- la contraseña en texto
+    plano viaja UNA sola vez acá, nunca se puede volver a leer después."""
+
+    password: str

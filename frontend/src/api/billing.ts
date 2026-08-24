@@ -1,5 +1,13 @@
 import { apiClient } from "./client";
-import type { AccountBalance, BillingSettings, BulkActionResult, Invoice, PaymentAccount } from "./types";
+import type {
+  AccountBalance,
+  BillingSettings,
+  BulkActionResult,
+  Invoice,
+  PaymentAccount,
+  PaymentReport,
+  PaymentReportStatus,
+} from "./types";
 
 export async function listInvoices(): Promise<Invoice[]> {
   const { data } = await apiClient.get<Invoice[]>("/invoices");
@@ -55,5 +63,22 @@ export async function updateBillingSettings(
   payload: Partial<BillingSettings>,
 ): Promise<BillingSettings> {
   const { data } = await apiClient.patch<BillingSettings>("/billing-settings", payload);
+  return data;
+}
+
+export async function listPaymentReports(status?: PaymentReportStatus): Promise<PaymentReport[]> {
+  const { data } = await apiClient.get<PaymentReport[]>("/payment-reports", {
+    params: status ? { status_filter: status } : undefined,
+  });
+  return data;
+}
+
+export async function confirmPaymentReport(id: string): Promise<Invoice> {
+  const { data } = await apiClient.post<Invoice>(`/payment-reports/${id}/confirm`);
+  return data;
+}
+
+export async function rejectPaymentReport(id: string): Promise<PaymentReport> {
+  const { data } = await apiClient.post<PaymentReport>(`/payment-reports/${id}/reject`);
   return data;
 }

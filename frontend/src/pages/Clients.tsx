@@ -1,12 +1,14 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  activateClientPortal,
   bulkReactivateClients,
   bulkSuspendClients,
   createClient,
   deleteClient,
   listClients,
   reactivateClient,
+  revokeClientPortal,
   suspendClient,
   updateClient,
 } from "../api/clients";
@@ -50,6 +52,9 @@ export default function Clients() {
     dir: "asc",
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [portalClientId, setPortalClientId] = useState<string | null>(null);
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
+  const portalClient = clients.find((c) => c.id === portalClientId) ?? null;
 
   const sortedClients = useMemo(() => {
     const value = (client: (typeof clients)[number]): string => {
@@ -141,6 +146,23 @@ export default function Clients() {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
       setSelected(new Set());
       reportBulkFailures(result, "reactivar");
+    },
+  });
+
+  const activatePortalMutation = useMutation({
+    mutationFn: activateClientPortal,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      setGeneratedPassword(result.password);
+    },
+    onError: (err) => alert(axiosErrorMessage(err) ?? "No se pudo activar el portal."),
+  });
+
+  const revokePortalMutation = useMutation({
+    mutationFn: revokeClientPortal,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      setGeneratedPassword(null);
     },
   });
 
@@ -491,6 +513,15 @@ export default function Clients() {
                   >
                     Quitar QoS
                   </button>
+                  <button
+                    onClick={() => {
+                      setGeneratedPassword(null);
+                      setPortalClientId(client.id);
+                    }}
+                    className="text-xs text-slate-500 hover:underline"
+                  >
+                    Portal{client.portal_active ? " (activo)" : ""}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -504,6 +535,58 @@ export default function Clients() {
           </tbody>
         </table>
       </div>
+
+      {portalClient && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow p-6 w-full max-w-sm space-y-4">
+            <h2 className="text-sm font-medium text-slate-600">
+              Portal de autoservicio — {portalClient.full_name}
+            </h2>
+            <p className="text-xs text-slate-500">
+              Estado: {portalClient.portal_active ? "activo" : "no activado"}
+              {!portalClient.identification && (
+                <span className="block text-red-600 mt-1">
+                  Este cliente no tiene número de identificación cargado -- hace falta antes de
+                  activar el portal (es lo que usa para iniciar sesión).
+                </span>
+              )}
+            </p>
+            {generatedPassword ? (
+              <div className="bg-amber-50 border border-amber-200 rounded p-3 space-y-1">
+                <p className="text-xs text-amber-700">
+                  Copiá esta contraseña ahora y dásela al cliente -- no se puede volver a ver.
+                </p>
+                <p className="font-mono text-sm break-all">{generatedPassword}</p>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => activatePortalMutation.mutate(portalClient.id)}
+                  disabled={activatePortalMutation.isPending || !portalClient.identification}
+                  className="flex-1 bg-slate-900 text-white text-sm rounded py-2 disabled:opacity-50"
+                >
+                  {portalClient.portal_active ? "Resetear contraseña" : "Activar portal"}
+                </button>
+                {portalClient.portal_active && (
+                  <button
+                    onClick={() => revokePortalMutation.mutate(portalClient.id)}
+                    disabled={revokePortalMutation.isPending}
+                    className="text-sm text-red-600 hover:underline disabled:opacity-50"
+                  >
+                    Revocar
+                  </button>
+                )}
+              </div>
+            )}
+            <button
+              onClick={() => setPortalClientId(null)}
+              className="w-full text-sm text-slate-500 hover:underline"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
