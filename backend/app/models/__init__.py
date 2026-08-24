@@ -2,6 +2,7 @@ from app.models.billing_settings import BillingSettings, ProrationTarget, Reconn
 from app.models.client import Client, ClientStatus
 from app.models.client_traffic_usage import ClientTrafficUsage
 from app.models.device_metric import DeviceMetric
+from app.models.installation import Installation, InstallationStatus
 from app.models.inventory import InventoryItem, InventoryMovement, MovementReason, Supplier
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.mikrotik_device import MikrotikDevice, DeviceStatus
@@ -19,6 +20,8 @@ __all__ = [
     "ClientStatus",
     "ClientTrafficUsage",
     "DeviceMetric",
+    "Installation",
+    "InstallationStatus",
     "Invoice",
     "InventoryItem",
     "InventoryMovement",

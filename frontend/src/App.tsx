@@ -13,11 +13,24 @@ import Zones from "./pages/Zones";
 import Staff from "./pages/Staff";
 import Mapa from "./pages/Mapa";
 import Almacen from "./pages/Almacen";
+import Instalaciones from "./pages/Instalaciones";
+import OrdenInstalacion from "./pages/OrdenInstalacion";
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* Fuera del <Layout> a propósito -- es una vista pensada para
+          imprimirse, no debe salir el sidebar de navegación. Sigue
+          requiriendo sesión vía RequireAuth. */}
+      <Route
+        path="/instalaciones/:installationId/orden"
+        element={
+          <RequireAuth>
+            <OrdenInstalacion />
+          </RequireAuth>
+        }
+      />
       <Route
         path="/"
         element={
@@ -36,6 +49,7 @@ export default function App() {
         <Route path="staff" element={<Staff />} />
         <Route path="mapa" element={<Mapa />} />
         <Route path="almacen" element={<Almacen />} />
+        <Route path="instalaciones" element={<Instalaciones />} />
         <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>

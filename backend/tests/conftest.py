@@ -43,6 +43,7 @@ def db_session():
     from app.db.session import SessionLocal
     from app.models.billing_settings import BillingSettings
     from app.models.client import Client
+    from app.models.installation import Installation
     from app.models.inventory import InventoryItem, InventoryMovement, Supplier
     from app.models.mikrotik_device import MikrotikDevice
     from app.models.invoice import Invoice
@@ -62,6 +63,9 @@ def db_session():
         session.query(InventoryMovement).delete()
         session.query(InventoryItem).delete()
         session.query(Supplier).delete()
+        # Installation antes que Client -- el DELETE en bloque de acá abajo
+        # es un DELETE crudo, no pasa por el cascade del ORM (Client.installations).
+        session.query(Installation).delete()
         session.query(Payment).delete()
         session.query(Invoice).delete()
         session.query(Client).delete()

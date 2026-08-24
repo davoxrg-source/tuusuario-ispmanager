@@ -11,6 +11,7 @@ const navItems = [
   { to: "/zones", label: "Zonas" },
   { to: "/mapa", label: "Mapa" },
   { to: "/almacen", label: "Almacén" },
+  { to: "/instalaciones", label: "Instalaciones" },
   { to: "/settings", label: "Configuración" },
 ];
 

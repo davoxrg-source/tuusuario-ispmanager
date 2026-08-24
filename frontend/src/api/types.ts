@@ -406,3 +406,34 @@ export interface TechnicianBalance {
   item_name: string;
   balance: number;
 }
+
+export type InstallationStatus = "scheduled" | "completed" | "cancelled";
+
+export interface Installation {
+  id: string;
+  client_id: string;
+  assigned_technician_id: string | null;
+  scheduled_date: string;
+  status: InstallationStatus;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface InstallationInput {
+  client_id: string;
+  assigned_technician_id?: string | null;
+  scheduled_date: string;
+  status?: InstallationStatus;
+  notes?: string | null;
+}
+
+export interface RouteLeg {
+  from_id: string;
+  to_id: string;
+  km: number;
+}
+
+export interface RouteDistance {
+  total_km: number;
+  legs: RouteLeg[];
+}

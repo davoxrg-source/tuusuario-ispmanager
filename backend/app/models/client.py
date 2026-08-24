@@ -86,3 +86,6 @@ class Client(Base, TimestampMixin):
     invoices: Mapped[list["Invoice"]] = relationship(  # noqa: F821
         back_populates="client", cascade="all, delete-orphan"
     )
+    installations: Mapped[list["Installation"]] = relationship(  # noqa: F821
+        back_populates="client", cascade="all, delete-orphan"
+    )
