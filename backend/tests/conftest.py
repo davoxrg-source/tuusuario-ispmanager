@@ -41,6 +41,7 @@ def db_session():
     frágil. El código bajo prueba hace sus propios db.commit(); por eso la
     limpieza acá es un DELETE explícito al final, no solo un rollback."""
     from app.db.session import SessionLocal
+    from app.models.api_key import ApiKey
     from app.models.billing_settings import BillingSettings
     from app.models.client import Client
     from app.models.contract import Contract, ContractTemplate
@@ -64,6 +65,9 @@ def db_session():
         yield session
     finally:
         session.rollback()
+        # ApiKey antes que User -- created_by_user_id es FK a users sin
+        # ondelete=CASCADE.
+        session.query(ApiKey).delete()
         # Contract antes que User -- created_by_user_id/witnessed_by_user_id
         # son FK a users sin ondelete=CASCADE.
         session.query(Contract).delete()

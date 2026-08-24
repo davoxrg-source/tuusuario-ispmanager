@@ -2,6 +2,7 @@
 
 from app.db.base_class import Base
 from app.models import (  # noqa: F401
+    ApiKey,
     BillingSettings,
     Client,
     Contract,

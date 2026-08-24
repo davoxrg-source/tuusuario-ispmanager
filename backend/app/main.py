@@ -11,12 +11,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 
 from app.api.routes import (
+    api_keys,
     auth,
     billing,
     billing_settings,
     clients,
     contracts,
     devices,
+    external_api,
     installations,
     interfaces,
     inventory,
@@ -115,6 +117,8 @@ app.include_router(portal_auth.router, prefix=api_prefix)
 app.include_router(portal.router, prefix=api_prefix)
 app.include_router(notifications.router, prefix=api_prefix)
 app.include_router(webhooks.router, prefix=api_prefix)
+app.include_router(api_keys.router, prefix=api_prefix)
+app.include_router(external_api.router, prefix=api_prefix)
 
 
 @app.get("/api/health")

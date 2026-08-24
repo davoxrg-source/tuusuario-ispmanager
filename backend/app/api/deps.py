@@ -1,16 +1,20 @@
+import hashlib
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
 from app.db.session import get_db
+from app.models.api_key import ApiKey
 from app.models.client import Client
 from app.models.user import User, UserRole
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 portal_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/portal/auth/login")
+api_key_scheme = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
@@ -60,6 +64,31 @@ def get_current_client(
     if client is None or client.hashed_password is None:
         raise credentials_error
     return client
+
+
+def get_current_api_key(
+    credentials: HTTPAuthorizationCredentials | None = Depends(api_key_scheme),
+    db: Session = Depends(get_db),
+) -> ApiKey:
+    """Paralelo a get_current_user/get_current_client pero para
+    integraciones externas (ver app/api/routes/external_api.py) -- Bearer
+    estático de larga duración, no un JWT. Se busca por hash exacto
+    (SHA256, no bcrypt: acá hace falta un lookup rápido, no una
+    comparación lenta a propósito como con una contraseña)."""
+    credentials_error = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="API key inválida o ausente.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    if credentials is None:
+        raise credentials_error
+    hashed = hashlib.sha256(credentials.credentials.encode()).hexdigest()
+    api_key = db.query(ApiKey).filter(ApiKey.hashed_key == hashed).first()
+    if api_key is None or not api_key.is_active:
+        raise credentials_error
+    api_key.last_used_at = datetime.now(timezone.utc)
+    db.commit()
+    return api_key
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:

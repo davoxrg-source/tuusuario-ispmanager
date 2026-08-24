@@ -1,3 +1,4 @@
+from app.models.api_key import ApiKey
 from app.models.billing_settings import BillingSettings, ProrationTarget, ReconnectionFeeMode
 from app.models.client import Client, ClientStatus
 from app.models.client_traffic_usage import ClientTrafficUsage
@@ -20,6 +21,7 @@ from app.models.wompi_transaction import WompiTransaction, WompiTransactionStatu
 from app.models.zone import Zone, user_zones
 
 __all__ = [
+    "ApiKey",
     "BillingSettings",
     "Client",
     "ClientStatus",
