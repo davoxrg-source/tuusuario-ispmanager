@@ -13,6 +13,7 @@ import {
 import { provisionClientQos, removeClientQos } from "../api/qos";
 import { listPlans } from "../api/plans";
 import { listDevices } from "../api/devices";
+import { listZones } from "../api/zones";
 import type { Client, ClientInput } from "../api/types";
 import Field from "../components/Field";
 import SortableHeader from "../components/SortableHeader";
@@ -24,12 +25,15 @@ const emptyForm: ClientInput = {
   email: "",
   phone: "",
   address: "",
+  latitude: null,
+  longitude: null,
   plan_id: null,
   mikrotik_device_id: null,
   ip_address: "",
   public_ip_address: "",
   public_ip_provider_interface: "",
   public_ip_lan_interface: "",
+  zone_id: null,
 };
 
 export default function Clients() {
@@ -37,6 +41,7 @@ export default function Clients() {
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
   const { data: plans = [] } = useQuery({ queryKey: ["plans"], queryFn: listPlans });
   const { data: devices = [] } = useQuery({ queryKey: ["devices"], queryFn: listDevices });
+  const { data: zones = [] } = useQuery({ queryKey: ["zones"], queryFn: listZones });
   const [form, setForm] = useState<ClientInput>(emptyForm);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -167,12 +172,15 @@ export default function Clients() {
       email: client.email ?? "",
       phone: client.phone ?? "",
       address: client.address ?? "",
+      latitude: client.latitude,
+      longitude: client.longitude,
       plan_id: client.plan_id,
       mikrotik_device_id: client.mikrotik_device_id,
       ip_address: client.ip_address ?? "",
       public_ip_address: client.public_ip_address ?? "",
       public_ip_provider_interface: client.public_ip_provider_interface ?? "",
       public_ip_lan_interface: client.public_ip_lan_interface ?? "",
+      zone_id: client.zone_id,
     });
     setEditingId(client.id);
     setShowForm(true);
@@ -244,6 +252,29 @@ export default function Clients() {
               className="border rounded px-3 py-2 text-sm w-full"
             />
           </Field>
+          <Field
+            label="Latitud / Longitud (para el mapa, opcional)"
+            hint="Podés copiarlas desde Google Maps: click derecho sobre el punto → copiar coordenadas."
+          >
+            <div className="flex gap-2">
+              <input
+                type="number"
+                step="any"
+                placeholder="Latitud"
+                value={form.latitude ?? ""}
+                onChange={(e) => setForm({ ...form, latitude: e.target.value ? Number(e.target.value) : null })}
+                className="border rounded px-3 py-2 text-sm w-full"
+              />
+              <input
+                type="number"
+                step="any"
+                placeholder="Longitud"
+                value={form.longitude ?? ""}
+                onChange={(e) => setForm({ ...form, longitude: e.target.value ? Number(e.target.value) : null })}
+                className="border rounded px-3 py-2 text-sm w-full"
+              />
+            </div>
+          </Field>
           <Field label="IP asignada">
             <input
               value={form.ip_address ?? ""}
@@ -299,6 +330,20 @@ export default function Clients() {
               {devices.map((device) => (
                 <option key={device.id} value={device.id}>
                   {device.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Zona">
+            <select
+              value={form.zone_id ?? ""}
+              onChange={(e) => setForm({ ...form, zone_id: e.target.value || null })}
+              className="border rounded px-3 py-2 text-sm w-full bg-white"
+            >
+              <option value="">Sin zona</option>
+              {zones.map((zone) => (
+                <option key={zone.id} value={zone.id}>
+                  {zone.name}
                 </option>
               ))}
             </select>

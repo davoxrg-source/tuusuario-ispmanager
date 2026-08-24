@@ -9,6 +9,7 @@ const navItems = [
   { to: "/plans", label: "Planes" },
   { to: "/billing", label: "Facturación" },
   { to: "/zones", label: "Zonas" },
+  { to: "/mapa", label: "Mapa" },
   { to: "/settings", label: "Configuración" },
 ];
 

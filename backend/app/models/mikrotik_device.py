@@ -3,7 +3,7 @@ import uuid
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,6 +23,9 @@ class MikrotikDevice(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(120))
     site: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Coordenadas para el mapa (ver pages/Mapa.tsx) -- opcionales.
+    latitude: Mapped[float | None] = mapped_column(Numeric(9, 6), nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Numeric(9, 6), nullable=True)
     host: Mapped[str] = mapped_column(String(255))
     # Dirección física, estable aunque la IP cambie. Usada para redescubrir el
     # equipo por MNDP si la IP guardada deja de responder (ver services/mikrotik/discovery.py).

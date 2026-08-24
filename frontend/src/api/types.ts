@@ -46,6 +46,8 @@ export interface MikrotikDevice {
   status: DeviceStatus;
   last_seen_at: string | null;
   zone_id: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface DiscoveredDevice {
@@ -68,6 +70,8 @@ export interface MikrotikDeviceInput {
   username: string;
   password: string;
   zone_id?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface ConnectionTestResult {
@@ -240,6 +244,8 @@ export interface Client {
   is_online: boolean;
   last_seen_at: string | null;
   zone_id: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface ClientInput {
@@ -255,6 +261,8 @@ export interface ClientInput {
   public_ip_provider_interface?: string | null;
   public_ip_lan_interface?: string | null;
   zone_id?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export type InvoiceStatus = "pending" | "paid" | "overdue" | "cancelled";

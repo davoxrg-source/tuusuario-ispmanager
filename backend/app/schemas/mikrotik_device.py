@@ -26,6 +26,8 @@ def _reject_unroutable_host(value: str | None) -> str | None:
 class MikrotikDeviceBase(BaseModel):
     name: str
     site: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     host: str
     mac_address: str | None = None
     api_port: int = 8728
@@ -49,6 +51,8 @@ class MikrotikDeviceCreate(MikrotikDeviceBase):
 class MikrotikDeviceUpdate(BaseModel):
     name: str | None = None
     site: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     host: str | None = None
     mac_address: str | None = None
     api_port: int | None = None

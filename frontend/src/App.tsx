@@ -11,6 +11,7 @@ import Billing from "./pages/Billing";
 import Settings from "./pages/Settings";
 import Zones from "./pages/Zones";
 import Staff from "./pages/Staff";
+import Mapa from "./pages/Mapa";
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="billing" element={<Billing />} />
         <Route path="zones" element={<Zones />} />
         <Route path="staff" element={<Staff />} />
+        <Route path="mapa" element={<Mapa />} />
         <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>

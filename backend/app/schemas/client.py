@@ -12,6 +12,8 @@ class ClientBase(BaseModel):
     email: str | None = None
     phone: str | None = None
     address: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     plan_id: uuid.UUID | None = None
     mikrotik_device_id: uuid.UUID | None = None
     ip_address: str | None = None
@@ -35,6 +37,8 @@ class ClientUpdate(BaseModel):
     email: str | None = None
     phone: str | None = None
     address: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     plan_id: uuid.UUID | None = None
     mikrotik_device_id: uuid.UUID | None = None
     ip_address: str | None = None

@@ -16,6 +16,8 @@ import type { DiscoveredDevice, MikrotikDeviceInput } from "../api/types";
 const emptyForm: MikrotikDeviceInput = {
   name: "",
   site: "",
+  latitude: null,
+  longitude: null,
   host: "",
   mac_address: "",
   api_port: 8728,
@@ -189,6 +191,22 @@ export default function Devices() {
               </option>
             ))}
           </select>
+          <input
+            type="number"
+            step="any"
+            placeholder="Latitud (para el mapa, opcional)"
+            value={form.latitude ?? ""}
+            onChange={(e) => setForm({ ...form, latitude: e.target.value ? Number(e.target.value) : null })}
+            className="border rounded px-3 py-2 text-sm"
+          />
+          <input
+            type="number"
+            step="any"
+            placeholder="Longitud (para el mapa, opcional)"
+            value={form.longitude ?? ""}
+            onChange={(e) => setForm({ ...form, longitude: e.target.value ? Number(e.target.value) : null })}
+            className="border rounded px-3 py-2 text-sm"
+          />
           <input
             required
             placeholder="Host / IP"

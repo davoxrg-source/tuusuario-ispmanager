@@ -28,6 +28,10 @@ class Client(Base, TimestampMixin):
     # sequreisp_production, donde llega a 70 caracteres.
     phone: Mapped[str | None] = mapped_column(String(120), nullable=True)
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Coordenadas para el mapa (ver pages/Mapa.tsx) -- opcionales, no todos
+    # los clientes van a tener ubicación cargada de entrada.
+    latitude: Mapped[float | None] = mapped_column(Numeric(9, 6), nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Numeric(9, 6), nullable=True)
 
     plan_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("plans.id"), nullable=True)
     mikrotik_device_id: Mapped[uuid.UUID | None] = mapped_column(
