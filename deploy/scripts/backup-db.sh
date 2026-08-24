@@ -49,3 +49,26 @@ pg_dump | gzip > "$backup_file"
 echo "Backup creado: $backup_file ($(du -h "$backup_file" | cut -f1))"
 
 find "$BACKUP_DIR" -name "ispmanager-$(hostname)-*.sql.gz" -mtime "+$RETENTION_DAYS" -type f -delete
+
+# Copia a los otros 2 sitios (NAS). Usan Synology DSM: no tienen habilitado el
+# subsistema sftp ni el modulo rsync por ssh para este usuario, asi que scp -O
+# (protocolo legacy, exec) es lo que efectivamente pasa -- confirmado a mano.
+BACKUP_KEY="$HOME/.ssh/id_ed25519_backup"
+
+push_remote() {
+  local dest=$1
+  scp -O -i "$BACKUP_KEY" -o BatchMode=yes -o ConnectTimeout=15 "$backup_file" "$dest" \
+    || echo "WARN: fallo el push a $dest"
+}
+
+prune_remote() {
+  local host=$1 path=$2
+  ssh -i "$BACKUP_KEY" -o BatchMode=yes -o ConnectTimeout=15 "$host" \
+    "find '$path' -name 'ispmanager-$(hostname)-*.sql.gz' -mtime +$RETENTION_DAYS -type f -delete" \
+    || echo "WARN: fallo la poda remota en $host:$path"
+}
+
+push_remote "davoxrg@10.100.8.60:/volume2/BACKUP/ispmanager/"
+push_remote "davoxrg@10.100.8.62:/volume1/BACKUP/ispmanager/"
+prune_remote "davoxrg@10.100.8.60" "/volume2/BACKUP/ispmanager"
+prune_remote "davoxrg@10.100.8.62" "/volume1/BACKUP/ispmanager"
