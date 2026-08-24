@@ -516,3 +516,16 @@ export interface Notification {
   sent_at: string | null;
   created_at: string;
 }
+
+export type WompiTransactionStatus = "pending" | "approved" | "declined" | "voided" | "error";
+
+export interface WompiTransaction {
+  id: string;
+  invoice_id: string;
+  reference: string;
+  wompi_transaction_id: string | null;
+  amount_in_cents: number;
+  status: WompiTransactionStatus;
+  created_at: string;
+  updated_at: string;
+}

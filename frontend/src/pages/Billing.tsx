@@ -7,6 +7,7 @@ import {
   listInvoices,
   listPaymentAccounts,
   listPaymentReports,
+  listWompiTransactions,
   payInvoice,
   rejectPaymentReport,
 } from "../api/billing";
@@ -27,6 +28,10 @@ export default function Billing() {
   const { data: pendingReports = [] } = useQuery({
     queryKey: ["payment-reports", "pending"],
     queryFn: () => listPaymentReports("pending"),
+  });
+  const { data: wompiTransactions = [] } = useQuery({
+    queryKey: ["wompi-transactions"],
+    queryFn: () => listWompiTransactions(),
   });
   const [payingId, setPayingId] = useState<string | null>(null);
   const [accountByInvoice, setAccountByInvoice] = useState<Record<string, string>>({});
@@ -78,6 +83,11 @@ export default function Billing() {
     return clients.find((c) => c.id === id)?.full_name ?? id;
   }
 
+  function clientNameForInvoice(invoiceId: string) {
+    const invoice = invoices.find((i) => i.id === invoiceId);
+    return invoice ? clientName(invoice.client_id) : invoiceId;
+  }
+
   function handlePay(invoiceId: string, amount: number) {
     setPayingId(invoiceId);
     payMutation.mutate({ id: invoiceId, amount });
@@ -97,6 +107,14 @@ export default function Billing() {
     paid: "bg-green-100 text-green-700",
     overdue: "bg-red-100 text-red-700",
     cancelled: "bg-slate-100 text-slate-400",
+  };
+
+  const wompiStatusStyles: Record<string, string> = {
+    pending: "bg-slate-100 text-slate-600",
+    approved: "bg-green-100 text-green-700",
+    declined: "bg-red-100 text-red-700",
+    voided: "bg-slate-100 text-slate-400",
+    error: "bg-red-100 text-red-700",
   };
 
   return (
@@ -154,6 +172,42 @@ export default function Billing() {
                     >
                       Rechazar
                     </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {wompiTransactions.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-5">
+          <h2 className="text-sm font-medium text-slate-600 mb-3">
+            Pagos en línea con Wompi
+          </h2>
+          <p className="text-xs text-slate-400 mb-3">
+            Solo lectura -- el webhook firmado de Wompi es la única fuente de verdad sobre estos pagos,
+            no hay acción manual acá.
+          </p>
+          <table className="w-full text-sm">
+            <thead className="text-left text-slate-500">
+              <tr>
+                <th className="py-1">Cliente</th>
+                <th className="py-1">Referencia</th>
+                <th className="py-1">Monto</th>
+                <th className="py-1">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {wompiTransactions.map((t) => (
+                <tr key={t.id} className="border-t">
+                  <td className="py-1">{clientNameForInvoice(t.invoice_id)}</td>
+                  <td className="py-1 font-mono text-xs">{t.reference}</td>
+                  <td className="py-1">${(t.amount_in_cents / 100).toFixed(2)}</td>
+                  <td className="py-1">
+                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${wompiStatusStyles[t.status]}`}>
+                      {t.status}
+                    </span>
                   </td>
                 </tr>
               ))}

@@ -56,6 +56,7 @@ def db_session():
     from app.models.push_subscription import PushSubscription
     from app.models.ticket import Ticket, TicketReply
     from app.models.user import User
+    from app.models.wompi_transaction import WompiTransaction
     from app.models.zone import Zone
 
     session = SessionLocal()
@@ -88,6 +89,7 @@ def db_session():
         # solo a nivel ORM, no aplica en un DELETE en bloque).
         session.query(Notification).delete()
         session.query(PushSubscription).delete()
+        session.query(WompiTransaction).delete()
         session.query(Payment).delete()
         session.query(Invoice).delete()
         session.query(Client).delete()

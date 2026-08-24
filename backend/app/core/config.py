@@ -61,6 +61,16 @@ class Settings(BaseSettings):
     vapid_private_key: str = ""
     vapid_subject: str = "mailto:soporte@example.com"
 
+    # Pasarela de pago Wompi (ver app/services/wompi/). Credencial de
+    # infraestructura, solo .env. wompi_api_base_url apunta a sandbox por
+    # defecto a propósito -- pasar a producción es una decisión explícita,
+    # no algo que pase por accidente al copiar un .env.example.
+    wompi_public_key: str = ""
+    wompi_private_key: str = ""
+    wompi_integrity_secret: str = ""
+    wompi_events_secret: str = ""
+    wompi_api_base_url: str = "https://sandbox.wompi.co/v1"
+
     environment: str = "production"
     cors_origins: str = "http://localhost:5173"
 

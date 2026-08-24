@@ -62,3 +62,6 @@ class Invoice(Base, TimestampMixin):
     payment_reports: Mapped[list["PaymentReport"]] = relationship(  # noqa: F821
         back_populates="invoice", cascade="all, delete-orphan"
     )
+    wompi_transactions: Mapped[list["WompiTransaction"]] = relationship(  # noqa: F821
+        back_populates="invoice", cascade="all, delete-orphan"
+    )

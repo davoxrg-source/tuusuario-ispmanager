@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_client
@@ -20,6 +20,8 @@ from app.schemas.portal import (
     PaymentReportRead,
 )
 from app.schemas.ticket import TicketCreate, TicketReplyCreate, TicketReplyRead, TicketRead
+from app.schemas.wompi import CheckoutUrlRead
+from app.services.wompi.service import create_checkout
 
 router = APIRouter(prefix="/portal", tags=["portal"], dependencies=[Depends(get_current_client)])
 
@@ -59,6 +61,31 @@ def report_payment(
     db.commit()
     db.refresh(report)
     return report
+
+
+@router.post("/invoices/{invoice_id}/checkout-url", response_model=CheckoutUrlRead)
+def get_checkout_url(
+    invoice_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_client: Client = Depends(get_current_client),
+) -> CheckoutUrlRead:
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None or invoice.client_id != current_client.id:
+        raise HTTPException(status_code=404, detail="Factura no encontrada.")
+    if invoice.status == InvoiceStatus.PAID:
+        raise HTTPException(status_code=400, detail="La factura ya está pagada.")
+
+    # El redirect es solo informativo (ver docstring de handle_webhook) --
+    # el ?wompi_id= es un parámetro propio, no de Wompi, para que
+    # Invoices.tsx muestre "estamos confirmando tu pago" en vez de asumir
+    # que ya se acreditó.
+    redirect_url = f"{str(request.base_url).rstrip('/')}/portal/facturas?wompi_id={invoice_id}"
+    try:
+        transaction, checkout_url = create_checkout(db, invoice, redirect_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return CheckoutUrlRead(checkout_url=checkout_url, reference=transaction.reference)
 
 
 @router.get("/tickets", response_model=list[TicketRead])

@@ -1,6 +1,8 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { listMyInvoices, reportPayment } from "../api/portal";
+import { createCheckoutUrl } from "../api/wompi";
 
 const statusStyles: Record<string, string> = {
   pending: "bg-slate-100 text-slate-600",
@@ -21,6 +23,16 @@ export default function Invoices() {
   const [reportingId, setReportingId] = useState<string | null>(null);
   const [method, setMethod] = useState("");
   const [reference, setReference] = useState("");
+  const [searchParams] = useSearchParams();
+  const confirmingWompiInvoice = searchParams.get("wompi_id");
+
+  const checkoutMutation = useMutation({
+    mutationFn: createCheckoutUrl,
+    onSuccess: (result) => {
+      window.location.href = result.checkout_url;
+    },
+    onError: () => alert("No se pudo iniciar el pago en línea. Probá de nuevo en un momento."),
+  });
 
   const reportMutation = useMutation({
     mutationFn: (invoiceId: string) =>
@@ -46,6 +58,12 @@ export default function Invoices() {
   return (
     <div className="space-y-3">
       <h1 className="text-lg font-semibold text-slate-800">Mis facturas</h1>
+      {confirmingWompiInvoice && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+          Estamos confirmando tu pago -- puede tardar un momento en reflejarse acá. Si no ves el cambio,
+          actualizá la página en un rato.
+        </div>
+      )}
       {invoices.map((inv) => (
         <div key={inv.id} className="bg-white rounded-lg shadow p-4 space-y-2">
           <div className="flex items-center justify-between">
@@ -67,6 +85,16 @@ export default function Invoices() {
               </span>
             )}
           </p>
+
+          {(inv.status === "pending" || inv.status === "overdue") && (
+            <button
+              onClick={() => checkoutMutation.mutate(inv.id)}
+              disabled={checkoutMutation.isPending}
+              className="w-full bg-slate-900 text-white text-sm rounded py-1.5 disabled:opacity-50"
+            >
+              Pagar en línea
+            </button>
+          )}
 
           {(inv.status === "pending" || inv.status === "overdue") &&
             (reportingId === inv.id ? (

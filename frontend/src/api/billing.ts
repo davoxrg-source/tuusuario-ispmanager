@@ -7,6 +7,8 @@ import type {
   PaymentAccount,
   PaymentReport,
   PaymentReportStatus,
+  WompiTransaction,
+  WompiTransactionStatus,
 } from "./types";
 
 export async function listInvoices(): Promise<Invoice[]> {
@@ -80,5 +82,12 @@ export async function confirmPaymentReport(id: string): Promise<Invoice> {
 
 export async function rejectPaymentReport(id: string): Promise<PaymentReport> {
   const { data } = await apiClient.post<PaymentReport>(`/payment-reports/${id}/reject`);
+  return data;
+}
+
+export async function listWompiTransactions(status?: WompiTransactionStatus): Promise<WompiTransaction[]> {
+  const { data } = await apiClient.get<WompiTransaction[]>("/wompi-transactions", {
+    params: status ? { status_filter: status } : undefined,
+  });
   return data;
 }

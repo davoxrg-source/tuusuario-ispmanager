@@ -21,5 +21,6 @@ from app.models import (  # noqa: F401
     PushSubscription,
     Supplier,
     User,
+    WompiTransaction,
     Zone,
 )

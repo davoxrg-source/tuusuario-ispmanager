@@ -7,12 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import ensure_zone_access, get_current_user, require_admin
 from app.db.session import get_db
-from app.models.client import Client, ClientStatus
+from app.models.client import Client
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.payment import Payment
 from app.models.payment_account import PaymentAccount
 from app.models.payment_report import PaymentReport, PaymentReportStatus
 from app.models.user import User
+from app.models.wompi_transaction import WompiTransaction, WompiTransactionStatus
 from app.schemas.billing import (
     AccountBalanceRead,
     BulkInvoiceCharge,
@@ -26,7 +27,8 @@ from app.schemas.billing import (
 )
 from app.schemas.common import BulkActionResult, BulkActionResultItem
 from app.schemas.portal import PaymentReportRead
-from app.services.clients.status import reactivate_client_service
+from app.schemas.wompi import WompiTransactionRead
+from app.services.billing.payments import mark_invoice_paid
 from app.services.notifications.service import notify_client
 
 # Tope razonable a la prórroga que se puede otorgar de una vez -- evita que
@@ -89,38 +91,6 @@ def list_client_invoices(
     )
 
 
-def _mark_invoice_paid(db: Session, invoice: Invoice, payment: PaymentCreate) -> Invoice:
-    """Crea el Payment, marca la Invoice pagada, y reactiva al cliente si
-    corresponde -- compartida entre pay_invoice (staff marca pagado
-    directo) y confirm_payment_report (staff confirma un pago que el
-    cliente reportó desde el portal). Asume que ya se validó que la
-    factura no estaba pagada."""
-    db.add(Payment(invoice_id=invoice.id, **payment.model_dump()))
-    invoice.status = InvoiceStatus.PAID
-    invoice.paid_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(invoice)
-
-    # Reactivación automática: si el cliente estaba suspendido y esta era su
-    # última factura pendiente/vencida (incluida una factura de reconexión,
-    # si el modo de cobro es "al suspender" -- es solo otra fila más acá),
-    # se reactiva sin que nadie tenga que hacerlo a mano.
-    client = invoice.client
-    if client.status == ClientStatus.SUSPENDED:
-        other_unpaid = (
-            db.query(Invoice)
-            .filter(
-                Invoice.client_id == client.id,
-                Invoice.status.in_([InvoiceStatus.PENDING, InvoiceStatus.OVERDUE]),
-            )
-            .count()
-        )
-        if other_unpaid == 0:
-            reactivate_client_service(db, client)
-
-    return invoice
-
-
 @router.post("/invoices/{invoice_id}/pay", response_model=InvoiceRead)
 def pay_invoice(
     invoice_id: uuid.UUID,
@@ -134,7 +104,7 @@ def pay_invoice(
     ensure_zone_access(current_user, invoice.client.zone_id, "Factura no encontrada.")
     if invoice.status == InvoiceStatus.PAID:
         raise HTTPException(status_code=400, detail="La factura ya está pagada.")
-    return _mark_invoice_paid(db, invoice, payload)
+    return mark_invoice_paid(db, invoice, payload)
 
 
 @router.post("/invoices/{invoice_id}/promise-to-pay", response_model=InvoiceRead)
@@ -236,7 +206,7 @@ def confirm_payment_report(
         raise HTTPException(status_code=400, detail="La factura ya está pagada.")
 
     payment = PaymentCreate(amount=report.amount, method=report.method, reference=report.reference)
-    _mark_invoice_paid(db, invoice, payment)
+    mark_invoice_paid(db, invoice, payment)
 
     report.status = PaymentReportStatus.CONFIRMED
     report.reviewed_by_user_id = current_user.id
@@ -277,3 +247,19 @@ def reject_payment_report(
         ),
     )
     return report
+
+
+@router.get("/wompi-transactions", response_model=list[WompiTransactionRead])
+def list_wompi_transactions(
+    invoice_id: uuid.UUID | None = None,
+    status_filter: WompiTransactionStatus | None = None,
+    db: Session = Depends(get_db),
+) -> list[WompiTransaction]:
+    """Solo lectura -- el webhook firmado es la única fuente de verdad
+    sobre el estado de estas transacciones, no hay acción de staff acá."""
+    query = db.query(WompiTransaction)
+    if invoice_id is not None:
+        query = query.filter(WompiTransaction.invoice_id == invoice_id)
+    if status_filter is not None:
+        query = query.filter(WompiTransaction.status == status_filter)
+    return query.order_by(WompiTransaction.created_at.desc()).all()

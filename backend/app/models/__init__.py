@@ -16,6 +16,7 @@ from app.models.poll_attempt import PollAttempt, PollAttemptStatus, PollJobType
 from app.models.push_subscription import PushSubscription
 from app.models.ticket import Ticket, TicketCategory, TicketPriority, TicketReply, TicketStatus
 from app.models.user import User
+from app.models.wompi_transaction import WompiTransaction, WompiTransactionStatus
 from app.models.zone import Zone, user_zones
 
 __all__ = [
@@ -57,6 +58,8 @@ __all__ = [
     "TicketReply",
     "TicketStatus",
     "User",
+    "WompiTransaction",
+    "WompiTransactionStatus",
     "Zone",
     "user_zones",
 ]
