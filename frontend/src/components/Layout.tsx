@@ -13,6 +13,7 @@ const navItems = [
   { to: "/almacen", label: "Almacén" },
   { to: "/instalaciones", label: "Instalaciones" },
   { to: "/contratos", label: "Contratos" },
+  { to: "/hotspot", label: "Fichas HotSpot" },
   { to: "/notificaciones", label: "Notificaciones" },
   { to: "/settings", label: "Configuración" },
 ];

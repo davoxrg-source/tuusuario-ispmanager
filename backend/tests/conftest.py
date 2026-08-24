@@ -45,6 +45,7 @@ def db_session():
     from app.models.billing_settings import BillingSettings
     from app.models.client import Client
     from app.models.contract import Contract, ContractTemplate
+    from app.models.hotspot import HotspotProfile, HotspotVoucher
     from app.models.installation import Installation
     from app.models.inventory import InventoryItem, InventoryMovement, Supplier
     from app.models.mikrotik_device import MikrotikDevice
@@ -72,6 +73,10 @@ def db_session():
         # son FK a users sin ondelete=CASCADE.
         session.query(Contract).delete()
         session.query(ContractTemplate).delete()
+        # HotspotVoucher antes que HotspotProfile/User -- profile_id y
+        # sold_by_user_id son FK sin ondelete=CASCADE.
+        session.query(HotspotVoucher).delete()
+        session.query(HotspotProfile).delete()
         # InventoryMovement antes que Item/Supplier/User/Client -- referencia
         # a los 4 sin ondelete=CASCADE, así que tiene que irse primero.
         session.query(InventoryMovement).delete()

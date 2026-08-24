@@ -19,6 +19,7 @@ from app.api.routes import (
     contracts,
     devices,
     external_api,
+    hotspot,
     installations,
     interfaces,
     inventory,
@@ -119,6 +120,7 @@ app.include_router(notifications.router, prefix=api_prefix)
 app.include_router(webhooks.router, prefix=api_prefix)
 app.include_router(api_keys.router, prefix=api_prefix)
 app.include_router(external_api.router, prefix=api_prefix)
+app.include_router(hotspot.router, prefix=api_prefix)
 
 
 @app.get("/api/health")

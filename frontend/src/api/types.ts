@@ -542,3 +542,35 @@ export interface ApiKey {
 export interface ApiKeyCreateResult extends ApiKey {
   key: string;
 }
+
+export interface HotspotProfile {
+  id: string;
+  name: string;
+  duration_hours: number | null;
+  data_limit_mb: number | null;
+  price: number;
+  currency: string;
+}
+
+export interface HotspotProfileInput {
+  name: string;
+  duration_hours?: number | null;
+  data_limit_mb?: number | null;
+  price: number;
+  currency: string;
+}
+
+export type HotspotVoucherStatus = "unused" | "sold" | "void";
+
+export interface HotspotVoucher {
+  id: string;
+  profile_id: string;
+  code: string;
+  price: number;
+  status: HotspotVoucherStatus;
+  batch_id: string;
+  sold_at: string | null;
+  sold_by_user_id: string | null;
+  voided_at: string | null;
+  created_at: string;
+}

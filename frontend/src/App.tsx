@@ -18,6 +18,8 @@ import OrdenInstalacion from "./pages/OrdenInstalacion";
 import Contratos from "./pages/Contratos";
 import FirmarContrato from "./pages/FirmarContrato";
 import Notifications from "./pages/Notifications";
+import HotspotVouchers from "./pages/HotspotVouchers";
+import HotspotVoucherPrint from "./pages/HotspotVoucherPrint";
 
 export default function App() {
   return (
@@ -43,6 +45,14 @@ export default function App() {
         }
       />
       <Route
+        path="/hotspot/lotes/:batchId/imprimir"
+        element={
+          <RequireAuth>
+            <HotspotVoucherPrint />
+          </RequireAuth>
+        }
+      />
+      <Route
         path="/"
         element={
           <RequireAuth>
@@ -63,6 +73,7 @@ export default function App() {
         <Route path="instalaciones" element={<Instalaciones />} />
         <Route path="contratos" element={<Contratos />} />
         <Route path="notificaciones" element={<Notifications />} />
+        <Route path="hotspot" element={<HotspotVouchers />} />
         <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>
