@@ -9,7 +9,18 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 
-from app.api.routes import auth, billing, clients, devices, interfaces, monitoring, plans, tickets, traffic
+from app.api.routes import (
+    auth,
+    billing,
+    billing_settings,
+    clients,
+    devices,
+    interfaces,
+    monitoring,
+    plans,
+    tickets,
+    traffic,
+)
 from app.core.config import get_settings
 from app.services.mikrotik.discovery import listener as mndp_listener
 from app.services.netflow.collector import start_collector
@@ -78,6 +89,7 @@ app.include_router(plans.router, prefix=api_prefix)
 app.include_router(clients.router, prefix=api_prefix)
 app.include_router(monitoring.router, prefix=api_prefix)
 app.include_router(billing.router, prefix=api_prefix)
+app.include_router(billing_settings.router, prefix=api_prefix)
 app.include_router(interfaces.router, prefix=api_prefix)
 app.include_router(traffic.router, prefix=api_prefix)
 app.include_router(tickets.router, prefix=api_prefix)

@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, require_admin
 from app.core.security import decrypt_secret
 from app.db.session import get_db
-from app.models.client import Client, ClientStatus
+from app.models.client import Client
 from app.models.mikrotik_device import MikrotikDevice
 from app.models.plan import Plan
-from app.schemas.client import ClientCreate, ClientRead, ClientUpdate
+from app.schemas.client import BulkClientAction, ClientCreate, ClientRead, ClientUpdate
+from app.schemas.common import BulkActionResult, BulkActionResultItem
+from app.services.clients.status import reactivate_client_service, suspend_client_service
 from app.services.mikrotik.device_service import DeviceService
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,39 @@ def _device_service_for(db: Session, client: Client) -> DeviceService | None:
 @router.get("", response_model=list[ClientRead])
 def list_clients(db: Session = Depends(get_db)) -> list[Client]:
     return db.query(Client).order_by(Client.full_name).all()
+
+
+# Registradas antes de las rutas "/{client_id}/..." a propósito: si fueran
+# después, FastAPI intentaría parsear "bulk" como un client_id (UUID) y
+# devolvería 422 en vez de matchear esta ruta.
+@router.post("/bulk/suspend", response_model=BulkActionResult, dependencies=[Depends(require_admin)])
+def bulk_suspend_clients(payload: BulkClientAction, db: Session = Depends(get_db)) -> BulkActionResult:
+    results: list[BulkActionResultItem] = []
+    for client_id in payload.client_ids:
+        try:
+            client = _get_client_or_404(db, client_id)
+            suspend_client_service(db, client)
+            results.append(BulkActionResultItem(id=client_id, ok=True))
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            results.append(BulkActionResultItem(id=client_id, ok=False, detail=detail))
+    return BulkActionResult(results=results)
+
+
+@router.post("/bulk/reactivate", response_model=BulkActionResult, dependencies=[Depends(require_admin)])
+def bulk_reactivate_clients(payload: BulkClientAction, db: Session = Depends(get_db)) -> BulkActionResult:
+    results: list[BulkActionResultItem] = []
+    for client_id in payload.client_ids:
+        try:
+            client = _get_client_or_404(db, client_id)
+            reactivate_client_service(db, client)
+            results.append(BulkActionResultItem(id=client_id, ok=True))
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            results.append(BulkActionResultItem(id=client_id, ok=False, detail=detail))
+    return BulkActionResult(results=results)
 
 
 def _sync_client_qos(
@@ -174,35 +209,13 @@ def suspend_client(client_id: uuid.UUID, db: Session = Depends(get_db)) -> Clien
     bloqueo (ver services/mikrotik/suspension.py) — la regla de firewall se
     crea sola la primera vez que hace falta, no requiere un paso aparte."""
     client = _get_client_or_404(db, client_id)
-    client.status = ClientStatus.SUSPENDED
-    db.commit()
-    db.refresh(client)
-
-    if client.ip_address:
-        service = _device_service_for(db, client)
-        if service:
-            try:
-                service.suspend_client_ip(client.ip_address)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("No se pudo bloquear al cliente %s en el Mikrotik: %s", client.id, exc)
-    return client
+    return suspend_client_service(db, client)
 
 
 @router.post("/{client_id}/reactivate", response_model=ClientRead)
 def reactivate_client(client_id: uuid.UUID, db: Session = Depends(get_db)) -> Client:
     client = _get_client_or_404(db, client_id)
-    client.status = ClientStatus.ACTIVE
-    db.commit()
-    db.refresh(client)
-
-    if client.ip_address:
-        service = _device_service_for(db, client)
-        if service:
-            try:
-                service.reactivate_client_ip(client.ip_address)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("No se pudo reactivar al cliente %s en el Mikrotik: %s", client.id, exc)
-    return client
+    return reactivate_client_service(db, client)
 
 
 def _wrap_router_error(exc: Exception, action: str) -> HTTPException:

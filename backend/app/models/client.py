@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -57,6 +57,13 @@ class Client(Base, TimestampMixin):
     # administrativo/de facturación del contrato.
     is_online: Mapped[bool] = mapped_column(default=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Crédito de prorrateo (ver services/billing/invoicing.apply_proration_if_needed
+    # con proration_target=NEXT_INVOICE) y bandera de cargo de reconexión
+    # (reconnection_fee_mode=ON_NEXT_INVOICE) pendientes de aplicar en la
+    # próxima factura -- se consumen y resetean en generate_monthly_invoices.
+    pending_credit: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    pending_reconnection_fee: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # id del contrato en el sistema legacy (sequreisp_production) que este
     # registro reemplaza — cada contrato legacy es un cliente acá (un

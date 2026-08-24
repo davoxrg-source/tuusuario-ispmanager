@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric
+from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,8 +36,19 @@ class Invoice(Base, TimestampMixin):
     # Prórroga puntual otorgada a este cliente/factura (ver
     # POST /invoices/{id}/promise-to-pay) -- mientras esté vigente,
     # suspend_clients_with_overdue_invoices no suspende por esta factura
-    # aunque ya haya pasado OVERDUE_GRACE_DAYS.
+    # aunque ya haya pasado el umbral de gracia configurado.
     promise_to_pay_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # Mora automática (ver services/billing/invoicing.apply_late_fees) --
+    # late_fee_applied_at sirve de guardia para no volver a aplicarla en
+    # corridas posteriores del job diario.
+    late_fee_amount: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    late_fee_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Folio secuencial (prefijo + número configurables, ver BillingSettings).
+    # Nullable porque facturas ya existentes antes de esta migración no
+    # tienen uno asignado retroactivamente.
+    folio: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True)
 
     client: Mapped["Client"] = relationship(back_populates="invoices")  # noqa: F821
     payments: Mapped[list["Payment"]] = relationship(  # noqa: F821

@@ -48,3 +48,7 @@ class ClientRead(ClientBase):
     status: ClientStatus
     is_online: bool
     last_seen_at: datetime | None = None
+
+
+class BulkClientAction(BaseModel):
+    client_ids: list[uuid.UUID]
