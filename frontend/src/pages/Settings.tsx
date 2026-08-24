@@ -187,6 +187,31 @@ export default function Settings() {
             />
           </Field>
 
+          <Field
+            label="Recordatorio de pago antes del vencimiento"
+            hint="Manda un aviso por correo/push (ver Notificaciones) cuando falten los días indicados para el vencimiento -- requiere SMTP configurado en el servidor para que el correo salga de verdad."
+          >
+            <select
+              value={form.payment_reminder_enabled ? "1" : "0"}
+              onChange={(e) => setForm({ ...form, payment_reminder_enabled: e.target.value === "1" })}
+              className="border rounded px-3 py-2 text-sm w-full bg-white"
+            >
+              <option value="0">Desactivado</option>
+              <option value="1">Activado</option>
+            </select>
+          </Field>
+          <Field label="Días antes del vencimiento para recordar">
+            <input
+              type="number"
+              min={0}
+              value={form.payment_reminder_days_before_due}
+              onChange={(e) =>
+                setForm({ ...form, payment_reminder_days_before_due: Number(e.target.value) })
+              }
+              className="border rounded px-3 py-2 text-sm w-full"
+            />
+          </Field>
+
           <button
             type="submit"
             disabled={saveMutation.isPending}

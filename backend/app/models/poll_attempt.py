@@ -15,6 +15,7 @@ class PollJobType(str, enum.Enum):
     CLIENT_ONLINE_STATUS = "client_online_status"
     DAILY_BILLING = "daily_billing"
     TRAFFIC_MAINTENANCE = "traffic_maintenance"
+    PAYMENT_REMINDERS = "payment_reminders"
 
 
 class PollAttemptStatus(str, enum.Enum):

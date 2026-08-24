@@ -100,3 +100,6 @@ class Client(Base, TimestampMixin):
     installations: Mapped[list["Installation"]] = relationship(  # noqa: F821
         back_populates="client", cascade="all, delete-orphan"
     )
+    push_subscriptions: Mapped[list["PushSubscription"]] = relationship(  # noqa: F821
+        cascade="all, delete-orphan"
+    )

@@ -346,6 +346,8 @@ export interface BillingSettings {
   reconnection_fee_amount: number;
   invoice_folio_prefix: string;
   invoice_folio_next_number: number;
+  payment_reminder_enabled: boolean;
+  payment_reminder_days_before_due: number;
 }
 
 export interface Supplier {
@@ -497,4 +499,20 @@ export interface PaymentReport {
   reported_at: string;
   reviewed_by_user_id: string | null;
   reviewed_at: string | null;
+}
+
+export type NotificationChannel = "email" | "push";
+export type NotificationStatus = "sent" | "failed";
+
+export interface Notification {
+  id: string;
+  client_id: string;
+  channel: NotificationChannel;
+  event_type: string;
+  recipient: string;
+  subject: string;
+  status: NotificationStatus;
+  error_message: string | null;
+  sent_at: string | null;
+  created_at: string;
 }

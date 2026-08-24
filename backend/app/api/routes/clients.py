@@ -22,6 +22,7 @@ from app.schemas.client import (
 from app.schemas.common import BulkActionResult, BulkActionResultItem
 from app.services.clients.status import reactivate_client_service, suspend_client_service
 from app.services.mikrotik.device_service import DeviceService
+from app.services.notifications.service import notify_client
 
 logger = logging.getLogger(__name__)
 
@@ -260,7 +261,8 @@ def activate_client_portal(client_id: uuid.UUID, db: Session = Depends(get_db)) 
     """Genera una contraseña nueva y la activa/resetea -- misma acción sirve
     para 'activar por primera vez' y para 'resetear'. La contraseña viaja en
     texto plano UNA sola vez acá; el staff la copia y se la da al cliente
-    por fuera del sistema (no hay envío automático todavía)."""
+    por fuera del sistema. Si el cliente tiene correo, también se le manda
+    por email como canal adicional (no un reemplazo del relevo manual)."""
     client = _get_client_or_404(db, client_id)
     if client.identification is None:
         raise HTTPException(
@@ -270,6 +272,19 @@ def activate_client_portal(client_id: uuid.UUID, db: Session = Depends(get_db)) 
     password = secrets.token_urlsafe(9)
     client.hashed_password = hash_password(password)
     db.commit()
+    notify_client(
+        db,
+        client,
+        event_type="portal_activated",
+        subject="Tu portal de autoservicio está listo",
+        body=(
+            f"Hola {client.full_name},\n\n"
+            f"Ya podés entrar a tu portal de autoservicio.\n\n"
+            f"Usuario (tu número de identificación): {client.identification}\n"
+            f"Contraseña: {password}\n\n"
+            "Podés cambiarla una vez que entres, desde tu perfil."
+        ),
+    )
     return PortalActivateRead(password=password)
 
 

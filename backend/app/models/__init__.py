@@ -7,11 +7,13 @@ from app.models.installation import Installation, InstallationStatus
 from app.models.inventory import InventoryItem, InventoryMovement, MovementReason, Supplier
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.mikrotik_device import MikrotikDevice, DeviceStatus
+from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.payment import Payment
 from app.models.payment_account import PaymentAccount
 from app.models.payment_report import PaymentReport, PaymentReportStatus
 from app.models.plan import Plan
 from app.models.poll_attempt import PollAttempt, PollAttemptStatus, PollJobType
+from app.models.push_subscription import PushSubscription
 from app.models.ticket import Ticket, TicketCategory, TicketPriority, TicketReply, TicketStatus
 from app.models.user import User
 from app.models.zone import Zone, user_zones
@@ -34,6 +36,9 @@ __all__ = [
     "MikrotikDevice",
     "DeviceStatus",
     "MovementReason",
+    "Notification",
+    "NotificationChannel",
+    "NotificationStatus",
     "Payment",
     "PaymentAccount",
     "PaymentReport",
@@ -43,6 +48,7 @@ __all__ = [
     "PollAttemptStatus",
     "PollJobType",
     "ProrationTarget",
+    "PushSubscription",
     "ReconnectionFeeMode",
     "Supplier",
     "Ticket",

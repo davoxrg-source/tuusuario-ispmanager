@@ -21,6 +21,7 @@ from app.api.routes import (
     interfaces,
     inventory,
     monitoring,
+    notifications,
     plans,
     portal,
     portal_auth,
@@ -36,6 +37,7 @@ from app.workers.poller import (
     poll_client_online_status_forever,
     poll_devices_forever,
     run_daily_billing_forever,
+    run_payment_reminders_forever,
     run_traffic_maintenance_forever,
 )
 
@@ -67,6 +69,7 @@ async def lifespan(app: FastAPI):
     background_tasks.append(asyncio.create_task(poll_client_online_status_forever()))
     background_tasks.append(asyncio.create_task(run_daily_billing_forever()))
     background_tasks.append(asyncio.create_task(run_traffic_maintenance_forever()))
+    background_tasks.append(asyncio.create_task(run_payment_reminders_forever()))
     try:
         yield
     finally:
@@ -109,6 +112,7 @@ app.include_router(installations.router, prefix=api_prefix)
 app.include_router(contracts.router, prefix=api_prefix)
 app.include_router(portal_auth.router, prefix=api_prefix)
 app.include_router(portal.router, prefix=api_prefix)
+app.include_router(notifications.router, prefix=api_prefix)
 
 
 @app.get("/api/health")

@@ -45,6 +45,11 @@ class Invoice(Base, TimestampMixin):
     late_fee_amount: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
     late_fee_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Guard contra re-notificar cada día dentro de la ventana de
+    # recordatorio -- mismo patrón exacto que late_fee_applied_at (ver
+    # services/notifications, send_payment_reminders).
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # Folio secuencial (prefijo + número configurables, ver BillingSettings).
     # Nullable porque facturas ya existentes antes de esta migración no
     # tienen uno asignado retroactivamente.

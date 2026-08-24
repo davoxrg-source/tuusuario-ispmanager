@@ -17,6 +17,7 @@ import Instalaciones from "./pages/Instalaciones";
 import OrdenInstalacion from "./pages/OrdenInstalacion";
 import Contratos from "./pages/Contratos";
 import FirmarContrato from "./pages/FirmarContrato";
+import Notifications from "./pages/Notifications";
 
 export default function App() {
   return (
@@ -61,6 +62,7 @@ export default function App() {
         <Route path="almacen" element={<Almacen />} />
         <Route path="instalaciones" element={<Instalaciones />} />
         <Route path="contratos" element={<Contratos />} />
+        <Route path="notificaciones" element={<Notifications />} />
         <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>

@@ -15,6 +15,7 @@ from app.schemas.ticket import (
     TicketReplyRead,
     TicketUpdate,
 )
+from app.services.notifications.service import notify_client
 
 router = APIRouter(prefix="/tickets", tags=["tickets"], dependencies=[Depends(get_current_user)])
 
@@ -104,9 +105,17 @@ def reply_to_ticket(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TicketReply:
-    _get_ticket_or_404(db, ticket_id)
+    ticket = _get_ticket_or_404(db, ticket_id)
     reply = TicketReply(ticket_id=ticket_id, author_user_id=current_user.id, body=payload.body)
     db.add(reply)
     db.commit()
     db.refresh(reply)
+    if ticket.client_id:
+        notify_client(
+            db,
+            ticket.client,
+            event_type="ticket_reply",
+            subject=f"Respondimos tu ticket: {ticket.subject}",
+            body=payload.body,
+        )
     return reply

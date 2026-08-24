@@ -4,12 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_client
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.client import Client
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.payment_report import PaymentReport
+from app.models.push_subscription import PushSubscription
 from app.models.ticket import Ticket, TicketReply
 from app.schemas.billing import InvoiceRead
+from app.schemas.notification import PushSubscriptionCreate, VapidPublicKeyRead
 from app.schemas.portal import (
     ClientPortalProfileUpdate,
     ClientPortalRead,
@@ -143,3 +146,46 @@ def update_my_profile(
     db.commit()
     db.refresh(current_client)
     return current_client
+
+
+@router.get("/vapid-public-key", response_model=VapidPublicKeyRead)
+def get_vapid_public_key() -> VapidPublicKeyRead:
+    return VapidPublicKeyRead(public_key=get_settings().vapid_public_key)
+
+
+@router.post("/push-subscriptions", status_code=204)
+def create_push_subscription(
+    payload: PushSubscriptionCreate,
+    db: Session = Depends(get_db),
+    current_client: Client = Depends(get_current_client),
+) -> None:
+    existing = db.query(PushSubscription).filter(PushSubscription.endpoint == payload.endpoint).first()
+    if existing:
+        existing.client_id = current_client.id
+        existing.p256dh = payload.keys.p256dh
+        existing.auth = payload.keys.auth
+    else:
+        db.add(
+            PushSubscription(
+                client_id=current_client.id,
+                endpoint=payload.endpoint,
+                p256dh=payload.keys.p256dh,
+                auth=payload.keys.auth,
+            )
+        )
+    db.commit()
+
+
+@router.delete("/push-subscriptions", status_code=204)
+def delete_push_subscription(
+    endpoint: str,
+    db: Session = Depends(get_db),
+    current_client: Client = Depends(get_current_client),
+) -> None:
+    # endpoint como query param, no como body -- evita las inconsistencias
+    # de clientes HTTP con DELETE+body (ej. axios necesita { data: ... }
+    # explícito, fácil de olvidar).
+    db.query(PushSubscription).filter(
+        PushSubscription.endpoint == endpoint, PushSubscription.client_id == current_client.id
+    ).delete()
+    db.commit()

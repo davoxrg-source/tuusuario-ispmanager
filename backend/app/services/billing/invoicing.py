@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import calendar
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from app.models.client import Client, ClientStatus
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.plan import Plan
 from app.services.clients.status import suspend_client_service
+from app.services.notifications.service import notify_client
 
 
 def _month_bounds(reference: date) -> tuple[date, date]:
@@ -121,6 +122,42 @@ def apply_late_fees(db: Session, now: datetime, settings: BillingSettings) -> li
         invoice.late_fee_applied_at = now
     db.commit()
     return overdue
+
+
+def send_payment_reminders(db: Session, settings: BillingSettings, today: date) -> list[Invoice]:
+    """Recordatorio de pago antes del vencimiento -- se manda una sola vez
+    por factura (guardia reminder_sent_at, mismo patrón que
+    late_fee_applied_at). Ventana abierta (due_date > today, no solo ==)
+    para que un job que se saltó un día igual la agarre en la próxima
+    corrida, en vez de perder el aviso para siempre."""
+    if not settings.payment_reminder_enabled:
+        return []
+
+    cutoff = today + timedelta(days=settings.payment_reminder_days_before_due)
+    due_soon = (
+        db.query(Invoice)
+        .filter(
+            Invoice.status == InvoiceStatus.PENDING,
+            Invoice.reminder_sent_at.is_(None),
+            Invoice.due_date > today,
+            Invoice.due_date <= cutoff,
+        )
+        .all()
+    )
+    for invoice in due_soon:
+        invoice.reminder_sent_at = datetime.now(timezone.utc)
+        db.commit()
+        notify_client(
+            db,
+            invoice.client,
+            event_type="invoice_due_reminder",
+            subject="Tu factura vence pronto",
+            body=(
+                f"Tu factura de ${invoice.amount} vence el {invoice.due_date}. "
+                "Podés reportar tu pago desde el portal."
+            ),
+        )
+    return due_soon
 
 
 def apply_proration_if_needed(

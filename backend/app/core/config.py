@@ -40,6 +40,27 @@ class Settings(BaseSettings):
     daily_billing_max_attempts: int = 1
     traffic_maintenance_max_attempts: int = 1
 
+    # Correo saliente para notificaciones al cliente (ver
+    # app/services/notifications/email_provider.py). Credencial de
+    # infraestructura, no una regla de negocio -- solo por .env, nunca
+    # editable desde la web (a diferencia de BillingSettings). Si
+    # smtp_host queda vacío, el envío falla con gracia y queda registrado
+    # como intento fallido, no tumba el backend.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_use_tls: bool = True
+
+    # Push del navegador (Web Push / VAPID, ver
+    # app/services/notifications/push_provider.py). Generar el par con
+    # `python -m app.cli.generate_vapid_keys`. Mismo criterio que SMTP:
+    # solo .env, se degrada con gracia si están vacías.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = "mailto:soporte@example.com"
+
     environment: str = "production"
     cors_origins: str = "http://localhost:5173"
 

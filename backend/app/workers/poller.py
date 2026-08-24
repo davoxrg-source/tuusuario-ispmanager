@@ -313,3 +313,36 @@ async def run_traffic_maintenance_forever() -> None:
         except Exception:  # noqa: BLE001
             logger.exception("Purga de uso de tráfico falló.")
         await asyncio.sleep(DAY_SECONDS)
+
+
+def _run_payment_reminders() -> None:
+    db = SessionLocal()
+    settings = get_settings()
+
+    def _job():
+        billing_settings = get_billing_settings(db)
+        sent = invoicing.send_payment_reminders(db, billing_settings, date.today())
+        if sent:
+            logger.info("Recordatorios de pago: %d factura(s) avisadas.", len(sent))
+
+    try:
+        run_with_retries(
+            _job,
+            max_attempts=1,
+            backoff_base_seconds=0,
+            backoff_max_seconds=0,
+            on_attempt=lambda outcome: _record_attempt(
+                db, job_type=PollJobType.PAYMENT_REMINDERS, device_id=None, outcome=outcome
+            ),
+        )
+    finally:
+        db.close()
+
+
+async def run_payment_reminders_forever() -> None:
+    while True:
+        try:
+            await asyncio.to_thread(_run_payment_reminders)
+        except Exception:  # noqa: BLE001
+            logger.exception("Job de recordatorios de pago falló.")
+        await asyncio.sleep(DAY_SECONDS)

@@ -96,6 +96,8 @@ class BillingSettingsRead(BaseModel):
     reconnection_fee_amount: float
     invoice_folio_prefix: str
     invoice_folio_next_number: int
+    payment_reminder_enabled: bool
+    payment_reminder_days_before_due: int
 
 
 class BillingSettingsUpdate(BaseModel):
@@ -111,3 +113,5 @@ class BillingSettingsUpdate(BaseModel):
     reconnection_fee_amount: float | None = None
     invoice_folio_prefix: str | None = None
     invoice_folio_next_number: int | None = None
+    payment_reminder_enabled: bool | None = None
+    payment_reminder_days_before_due: int | None = None

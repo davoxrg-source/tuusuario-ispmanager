@@ -27,6 +27,7 @@ from app.schemas.billing import (
 from app.schemas.common import BulkActionResult, BulkActionResultItem
 from app.schemas.portal import PaymentReportRead
 from app.services.clients.status import reactivate_client_service
+from app.services.notifications.service import notify_client
 
 # Tope razonable a la prórroga que se puede otorgar de una vez -- evita que
 # una promesa de pago deje una factura vencida sin cortar indefinidamente.
@@ -241,6 +242,13 @@ def confirm_payment_report(
     report.reviewed_by_user_id = current_user.id
     report.reviewed_at = datetime.now(timezone.utc)
     db.commit()
+    notify_client(
+        db,
+        report.client,
+        event_type="payment_confirmed",
+        subject="Confirmamos tu pago",
+        body=f"Confirmamos tu pago de ${report.amount} -- gracias. Tu factura ya quedó al día.",
+    )
     return invoice
 
 
@@ -258,4 +266,14 @@ def reject_payment_report(
     report.reviewed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(report)
+    notify_client(
+        db,
+        report.client,
+        event_type="payment_rejected",
+        subject="No pudimos confirmar tu pago",
+        body=(
+            f"No pudimos confirmar el pago de ${report.amount} que reportaste -- "
+            "contactanos para revisarlo."
+        ),
+    )
     return report

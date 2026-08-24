@@ -15,6 +15,15 @@ const queryClient = new QueryClient({
   },
 });
 
+// Registra el service worker de push (ver public/sw.js) -- guardado detrás
+// de la feature-check, algunos navegadores/contextos (ej. http sin TLS) no
+// lo soportan y no debe romper el resto de la app.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/portal/sw.js").catch((err) => {
+    console.warn("No se pudo registrar el service worker de push:", err);
+  });
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>

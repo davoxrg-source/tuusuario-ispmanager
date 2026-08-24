@@ -8,6 +8,7 @@ from app.api.routes.billing import confirm_payment_report, list_payment_reports,
 from app.api.routes.portal import report_payment
 from app.models.client import Client, ClientStatus
 from app.models.invoice import Invoice, InvoiceStatus
+from app.models.notification import Notification
 from app.models.payment_report import PaymentReportStatus
 from app.models.user import User, UserRole
 from app.schemas.portal import PaymentReportCreate
@@ -98,6 +99,27 @@ def test_reviewing_an_already_reviewed_report_rejected(db_session):
     with pytest.raises(HTTPException) as exc_info:
         confirm_payment_report(report.id, db_session, admin)
     assert exc_info.value.status_code == 400
+
+
+def test_confirm_and_reject_notify_the_client(db_session):
+    admin = _make_admin(db_session)
+    client = _make_client(db_session, email="cliente@compusoft-isp.com")
+    invoice_a = _make_invoice(db_session, client)
+    invoice_b = _make_invoice(db_session, client)
+    report_a = report_payment(
+        PaymentReportCreate(invoice_id=invoice_a.id, amount=45000, method="nequi"), db_session, client
+    )
+    report_b = report_payment(
+        PaymentReportCreate(invoice_id=invoice_b.id, amount=45000, method="nequi"), db_session, client
+    )
+
+    confirm_payment_report(report_a.id, db_session, admin)
+    reject_payment_report(report_b.id, db_session, admin)
+
+    events = {
+        n.event_type for n in db_session.query(Notification).filter(Notification.client_id == client.id).all()
+    }
+    assert events == {"payment_confirmed", "payment_rejected"}
 
 
 def test_list_payment_reports_filters_by_status(db_session):

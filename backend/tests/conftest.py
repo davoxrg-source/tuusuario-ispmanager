@@ -48,10 +48,12 @@ def db_session():
     from app.models.inventory import InventoryItem, InventoryMovement, Supplier
     from app.models.mikrotik_device import MikrotikDevice
     from app.models.invoice import Invoice
+    from app.models.notification import Notification
     from app.models.payment import Payment
     from app.models.payment_account import PaymentAccount
     from app.models.payment_report import PaymentReport
     from app.models.plan import Plan
+    from app.models.push_subscription import PushSubscription
     from app.models.ticket import Ticket, TicketReply
     from app.models.user import User
     from app.models.zone import Zone
@@ -81,6 +83,11 @@ def db_session():
         # ondelete (la cascada real es Invoice.payment_reports, que no
         # aplica acá por ser un DELETE en bloque, no vía ORM).
         session.query(PaymentReport).delete()
+        # Notification/PushSubscription antes que Client -- mismo motivo,
+        # sin ondelete propio (la cascada de PushSubscription también es
+        # solo a nivel ORM, no aplica en un DELETE en bloque).
+        session.query(Notification).delete()
+        session.query(PushSubscription).delete()
         session.query(Payment).delete()
         session.query(Invoice).delete()
         session.query(Client).delete()

@@ -51,3 +51,10 @@ class BillingSettings(Base, TimestampMixin):
 
     invoice_folio_prefix: Mapped[str] = mapped_column(String(20), default="")
     invoice_folio_next_number: Mapped[int] = mapped_column(Integer, default=1)
+
+    # Recordatorio de pago antes del vencimiento (ver
+    # services/notifications, send_payment_reminders). Apagado por
+    # defecto -- no tiene sentido generar avisos si todavía no hay SMTP
+    # configurado (ver core/config.py).
+    payment_reminder_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    payment_reminder_days_before_due: Mapped[int] = mapped_column(Integer, default=3)

@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { changePassword, fetchMyProfile } from "../api/auth";
 import { updateMyProfile } from "../api/portal";
+import { disablePush, enablePush, getCurrentPushSubscription, isPushSupported } from "../api/push";
 
 export default function Profile() {
   const queryClient = useQueryClient();
@@ -16,6 +17,10 @@ export default function Profile() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSaved, setPasswordSaved] = useState(false);
 
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const [pushLoading, setPushLoading] = useState(false);
+
   useEffect(() => {
     if (profile) {
       setPhone(profile.phone ?? "");
@@ -23,6 +28,28 @@ export default function Profile() {
       setAddress(profile.address ?? "");
     }
   }, [profile]);
+
+  useEffect(() => {
+    getCurrentPushSubscription().then((sub) => setPushSubscribed(Boolean(sub)));
+  }, []);
+
+  async function handleTogglePush() {
+    setPushError(null);
+    setPushLoading(true);
+    try {
+      if (pushSubscribed) {
+        await disablePush();
+        setPushSubscribed(false);
+      } else {
+        await enablePush();
+        setPushSubscribed(true);
+      }
+    } catch (err) {
+      setPushError(err instanceof Error ? err.message : "No se pudo activar las notificaciones.");
+    } finally {
+      setPushLoading(false);
+    }
+  }
 
   const profileMutation = useMutation({
     mutationFn: () => updateMyProfile({ phone, email, address }),
@@ -98,6 +125,23 @@ export default function Profile() {
           Guardar
         </button>
       </form>
+
+      {isPushSupported() && (
+        <div className="bg-white rounded-lg shadow p-4 space-y-2">
+          <h2 className="text-sm font-medium text-slate-600">Notificaciones push</h2>
+          <p className="text-xs text-slate-400">
+            Recibí avisos en este dispositivo cuando confirmemos un pago o respondamos un ticket.
+          </p>
+          {pushError && <p className="text-xs text-red-600">{pushError}</p>}
+          <button
+            onClick={handleTogglePush}
+            disabled={pushLoading}
+            className="w-full bg-slate-900 text-white text-sm rounded py-2 disabled:opacity-50"
+          >
+            {pushSubscribed ? "Desactivar notificaciones" : "Activar notificaciones"}
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handlePasswordSubmit} className="bg-white rounded-lg shadow p-4 space-y-3">
         <h2 className="text-sm font-medium text-slate-600">Cambiar contraseña</h2>
