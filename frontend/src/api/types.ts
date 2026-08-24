@@ -168,6 +168,18 @@ export interface DeviceMetric {
   interfaces: { list: { name: string; rx_bytes: number; tx_bytes: number; running: boolean }[] } | null;
 }
 
+export interface PollAttempt {
+  id: string;
+  device_id: string | null;
+  job_type: string;
+  attempt_number: number;
+  max_attempts: number;
+  status: "success" | "failure";
+  error_message: string | null;
+  duration_ms: number | null;
+  attempted_at: string;
+}
+
 export interface Plan {
   id: string;
   name: string;

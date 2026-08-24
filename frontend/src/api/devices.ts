@@ -7,6 +7,7 @@ import type {
   DiscoveredDevice,
   MikrotikDevice,
   MikrotikDeviceInput,
+  PollAttempt,
 } from "./types";
 
 export async function listDevices(): Promise<MikrotikDevice[]> {
@@ -74,5 +75,12 @@ export async function getDeviceMetrics(id: string, limit = 100): Promise<DeviceM
 
 export async function getActiveSessions(id: string): Promise<ActivePppSession[]> {
   const { data } = await apiClient.get<ActivePppSession[]>(`/devices/${id}/active-sessions`);
+  return data;
+}
+
+export async function getPollAttempts(id: string, limit = 50): Promise<PollAttempt[]> {
+  const { data } = await apiClient.get<PollAttempt[]>(`/devices/${id}/poll-attempts`, {
+    params: { limit },
+  });
   return data;
 }
