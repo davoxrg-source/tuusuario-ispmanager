@@ -12,6 +12,7 @@ const navItems = [
   { to: "/mapa", label: "Mapa" },
   { to: "/almacen", label: "Almacén" },
   { to: "/instalaciones", label: "Instalaciones" },
+  { to: "/contratos", label: "Contratos" },
   { to: "/settings", label: "Configuración" },
 ];
 

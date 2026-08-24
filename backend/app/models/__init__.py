@@ -1,6 +1,7 @@
 from app.models.billing_settings import BillingSettings, ProrationTarget, ReconnectionFeeMode
 from app.models.client import Client, ClientStatus
 from app.models.client_traffic_usage import ClientTrafficUsage
+from app.models.contract import Contract, ContractStatus, ContractTemplate
 from app.models.device_metric import DeviceMetric
 from app.models.installation import Installation, InstallationStatus
 from app.models.inventory import InventoryItem, InventoryMovement, MovementReason, Supplier
@@ -19,6 +20,9 @@ __all__ = [
     "Client",
     "ClientStatus",
     "ClientTrafficUsage",
+    "Contract",
+    "ContractStatus",
+    "ContractTemplate",
     "DeviceMetric",
     "Installation",
     "InstallationStatus",

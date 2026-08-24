@@ -14,6 +14,7 @@ from app.api.routes import (
     billing,
     billing_settings,
     clients,
+    contracts,
     devices,
     installations,
     interfaces,
@@ -102,6 +103,7 @@ app.include_router(users.directory_router, prefix=api_prefix)
 app.include_router(zones.router, prefix=api_prefix)
 app.include_router(inventory.router, prefix=api_prefix)
 app.include_router(installations.router, prefix=api_prefix)
+app.include_router(contracts.router, prefix=api_prefix)
 
 
 @app.get("/api/health")

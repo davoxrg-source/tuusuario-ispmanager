@@ -437,3 +437,43 @@ export interface RouteDistance {
   total_km: number;
   legs: RouteLeg[];
 }
+
+export interface ContractTemplate {
+  id: string;
+  name: string;
+  body: string;
+}
+
+export interface ContractTemplateInput {
+  name: string;
+  body: string;
+}
+
+export type ContractStatus = "draft" | "signed" | "void";
+
+export interface Contract {
+  id: string;
+  client_id: string | null;
+  template_id: string | null;
+  rendered_body: string;
+  status: ContractStatus;
+  signer_name: string | null;
+  signer_identification: string | null;
+  signature_image: string | null;
+  signed_at: string | null;
+  signer_ip: string | null;
+  witnessed_by_user_id: string | null;
+  created_by_user_id: string;
+  created_at: string;
+}
+
+export interface ContractCreateInput {
+  client_id: string;
+  template_id: string;
+}
+
+export interface ContractSignInput {
+  signer_name: string;
+  signer_identification?: string | null;
+  signature_image: string;
+}

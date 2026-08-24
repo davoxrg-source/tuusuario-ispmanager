@@ -43,6 +43,7 @@ def db_session():
     from app.db.session import SessionLocal
     from app.models.billing_settings import BillingSettings
     from app.models.client import Client
+    from app.models.contract import Contract, ContractTemplate
     from app.models.installation import Installation
     from app.models.inventory import InventoryItem, InventoryMovement, Supplier
     from app.models.mikrotik_device import MikrotikDevice
@@ -58,6 +59,10 @@ def db_session():
         yield session
     finally:
         session.rollback()
+        # Contract antes que User -- created_by_user_id/witnessed_by_user_id
+        # son FK a users sin ondelete=CASCADE.
+        session.query(Contract).delete()
+        session.query(ContractTemplate).delete()
         # InventoryMovement antes que Item/Supplier/User/Client -- referencia
         # a los 4 sin ondelete=CASCADE, así que tiene que irse primero.
         session.query(InventoryMovement).delete()
