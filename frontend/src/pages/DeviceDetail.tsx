@@ -9,7 +9,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { getActiveSessions, getDevice, getDeviceMetrics, getDeviceStatus } from "../api/devices";
+import {
+  getActiveSessions,
+  getDevice,
+  getDeviceMetrics,
+  getDeviceStatus,
+  getPollAttempts,
+} from "../api/devices";
 import InterfaceConfig from "../components/InterfaceConfig";
 import QosPlans from "../components/QosPlans";
 import WanBalancing from "../components/WanBalancing";
@@ -34,6 +40,11 @@ export default function DeviceDetail() {
     queryFn: () => getActiveSessions(id),
     refetchInterval: 15000,
     retry: false,
+  });
+  const { data: pollAttempts = [] } = useQuery({
+    queryKey: ["device-poll-attempts", id],
+    queryFn: () => getPollAttempts(id, 50),
+    refetchInterval: 15000,
   });
 
   const chartData = [...metrics]
@@ -118,6 +129,45 @@ export default function DeviceDetail() {
         </table>
       </div>
 
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <h2 className="text-sm font-medium text-slate-600 px-5 pt-4">Últimos intentos de conexión</h2>
+        <table className="w-full text-sm mt-2">
+          <thead className="bg-slate-50 text-left text-slate-500">
+            <tr>
+              <th className="px-4 py-2">Fecha</th>
+              <th className="px-4 py-2">Tipo</th>
+              <th className="px-4 py-2">Intento</th>
+              <th className="px-4 py-2">Estado</th>
+              <th className="px-4 py-2">Detalle</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pollAttempts.map((a) => (
+              <tr key={a.id} className="border-t">
+                <td className="px-4 py-2">{new Date(a.attempted_at).toLocaleString()}</td>
+                <td className="px-4 py-2">{jobTypeLabel(a.job_type)}</td>
+                <td className="px-4 py-2">
+                  {a.attempt_number}/{a.max_attempts}
+                </td>
+                <td className="px-4 py-2">
+                  <span className={a.status === "success" ? "text-emerald-600" : "text-red-600"}>
+                    {a.status === "success" ? "Éxito" : "Falló"}
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-slate-500 truncate max-w-xs">{a.error_message ?? "—"}</td>
+              </tr>
+            ))}
+            {pollAttempts.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
+                  Sin intentos registrados todavía.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
       <InterfaceConfig deviceId={id} />
       <WanBalancing deviceId={id} />
       <QosPlans deviceId={id} />
@@ -132,6 +182,16 @@ function Metric({ label, value }: { label: string; value: string | number }) {
       <p className="text-lg font-semibold text-slate-800">{value}</p>
     </div>
   );
+}
+
+function jobTypeLabel(jobType: string): string {
+  const labels: Record<string, string> = {
+    device_poll: "Polling equipo",
+    client_online_status: "Estado conexión clientes",
+    daily_billing: "Facturación diaria",
+    traffic_maintenance: "Purga de tráfico",
+  };
+  return labels[jobType] ?? jobType;
 }
 
 function formatUptime(seconds: number): string {

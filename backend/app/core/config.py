@@ -28,6 +28,18 @@ class Settings(BaseSettings):
     netflow_public_host: str = ""
     netflow_retention_days: int = 90
 
+    # Reintento con backoff para las llamadas de red del poller (ver
+    # app/workers/retry.py) -- compartido por polling de dispositivos y de
+    # estado online de clientes, misma forma de "reintentar una llamada de
+    # red". Los jobs diarios (facturación, purga de tráfico) usan
+    # max_attempts=1: son batch/sensibles a reprocesamiento parcial, no
+    # conviene reintentarlos a ciegas.
+    poller_retry_max_attempts: int = 3
+    poller_retry_backoff_base_seconds: float = 5.0
+    poller_retry_backoff_max_seconds: float = 30.0
+    daily_billing_max_attempts: int = 1
+    traffic_maintenance_max_attempts: int = 1
+
     environment: str = "production"
     cors_origins: str = "http://localhost:5173"
 

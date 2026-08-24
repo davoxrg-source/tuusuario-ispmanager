@@ -5,6 +5,7 @@ from app.models.invoice import Invoice, InvoiceStatus
 from app.models.mikrotik_device import MikrotikDevice, DeviceStatus
 from app.models.payment import Payment
 from app.models.plan import Plan
+from app.models.poll_attempt import PollAttempt, PollAttemptStatus, PollJobType
 from app.models.ticket import Ticket, TicketCategory, TicketPriority, TicketReply, TicketStatus
 from app.models.user import User
 
@@ -19,6 +20,9 @@ __all__ = [
     "DeviceStatus",
     "Payment",
     "Plan",
+    "PollAttempt",
+    "PollAttemptStatus",
+    "PollJobType",
     "Ticket",
     "TicketCategory",
     "TicketPriority",

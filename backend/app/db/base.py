@@ -8,5 +8,6 @@ from app.models import (  # noqa: F401
     MikrotikDevice,
     Payment,
     Plan,
+    PollAttempt,
     User,
 )

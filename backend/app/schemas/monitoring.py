@@ -16,3 +16,17 @@ class DeviceMetricRead(BaseModel):
     uptime_seconds: int | None = None
     active_ppp_sessions: int | None = None
     interfaces: dict | None = None
+
+
+class PollAttemptRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    device_id: uuid.UUID | None = None
+    job_type: str
+    attempt_number: int
+    max_attempts: int
+    status: str
+    error_message: str | None = None
+    duration_ms: int | None = None
+    attempted_at: datetime

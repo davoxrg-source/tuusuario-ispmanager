@@ -27,9 +27,12 @@ from app.db.session import SessionLocal
 from app.models.client import Client
 from app.models.device_metric import DeviceMetric
 from app.models.mikrotik_device import DeviceStatus, MikrotikDevice
+from app.models.poll_attempt import PollAttempt, PollAttemptStatus, PollJobType
 from app.services.billing import invoicing
+from app.services.billing.settings import get_billing_settings
 from app.services.mikrotik.device_service import DeviceService
 from app.services.netflow.collector import purge_old_buckets
+from app.workers.retry import AttemptOutcome, run_with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,28 @@ DAY_SECONDS = 24 * 60 * 60
 # memoria del proceso a propósito: si el backend se reinicia, empieza de
 # cero, que es aceptable para una alerta operativa (no es auditoría).
 _previously_stuck: dict[str, set[str]] = {}
+
+
+def _record_attempt(
+    db: Session, *, job_type: PollJobType, device_id, outcome: AttemptOutcome
+) -> None:
+    """Persiste un intento (éxito o fallo) de un job de background -- ver
+    app/models/poll_attempt.py. Se llama después de CADA intento, no solo
+    del resultado final, así queda visible el reintento en curso aunque el
+    proceso muera a mitad de camino."""
+    db.rollback()  # defensivo: si fn() dejó la sesión en tx abortada
+    db.add(
+        PollAttempt(
+            device_id=device_id,
+            job_type=job_type,
+            attempt_number=outcome.attempt_number,
+            max_attempts=outcome.max_attempts,
+            status=PollAttemptStatus.SUCCESS if outcome.succeeded else PollAttemptStatus.FAILURE,
+            error_message=str(outcome.error)[:2000] if outcome.error else None,
+            duration_ms=outcome.duration_ms,
+        )
+    )
+    db.commit()
 
 
 def _check_qos_health(device: MikrotikDevice, service: DeviceService) -> None:
@@ -61,7 +86,15 @@ def _check_qos_health(device: MikrotikDevice, service: DeviceService) -> None:
     _previously_stuck[device_key] = stuck_now
 
 
-def _update_client_online_status(db: Session, device: MikrotikDevice, service: DeviceService) -> None:
+def _update_client_online_status(
+    db: Session,
+    device: MikrotikDevice,
+    service: DeviceService,
+    *,
+    max_attempts: int,
+    backoff_base_seconds: float,
+    backoff_max_seconds: float,
+) -> None:
     """Marca online/offline a cada cliente de este equipo según si su IP
     responde ARP ahora mismo (pinga cada una para forzar una lectura
     fresca, no una entrada 'stale' en caché -- ver
@@ -71,7 +104,15 @@ def _update_client_online_status(db: Session, device: MikrotikDevice, service: D
     candidate_ips = [c.ip_address for c in clients if c.ip_address]
 
     try:
-        online_ips = service.get_online_ip_set(candidate_ips)
+        online_ips = run_with_retries(
+            lambda: service.get_online_ip_set(candidate_ips),
+            max_attempts=max_attempts,
+            backoff_base_seconds=backoff_base_seconds,
+            backoff_max_seconds=backoff_max_seconds,
+            on_attempt=lambda outcome: _record_attempt(
+                db, job_type=PollJobType.CLIENT_ONLINE_STATUS, device_id=device.id, outcome=outcome
+            ),
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("No se pudo leer la tabla ARP de %s: %s", device.name, exc)
         return
@@ -100,18 +141,29 @@ def _ensure_traffic_flow(device: MikrotikDevice, service: DeviceService) -> None
 def _poll_device_once(db: Session, device: MikrotikDevice) -> None:
     password = decrypt_secret(device.encrypted_password)
     service = DeviceService(device, password)
-    try:
+    settings = get_settings()
+
+    def _fetch():
         try:
-            status = service.get_status()
-            interfaces = service.get_interfaces_snapshot()
+            return service.get_status(), service.get_interfaces_snapshot()
         except Exception:
             # La IP guardada no respondió: si hay MAC registrada, intentamos
             # redescubrir la IP actual por MNDP antes de marcar el equipo offline.
             new_host = service.resolve_host_via_mac(db)
             if not new_host:
                 raise
-            status = service.get_status()
-            interfaces = service.get_interfaces_snapshot()
+            return service.get_status(), service.get_interfaces_snapshot()
+
+    try:
+        status, interfaces = run_with_retries(
+            _fetch,
+            max_attempts=settings.poller_retry_max_attempts,
+            backoff_base_seconds=settings.poller_retry_backoff_base_seconds,
+            backoff_max_seconds=settings.poller_retry_backoff_max_seconds,
+            on_attempt=lambda outcome: _record_attempt(
+                db, job_type=PollJobType.DEVICE_POLL, device_id=device.id, outcome=outcome
+            ),
+        )
 
         device.status = DeviceStatus.ONLINE
         db.add(
@@ -145,16 +197,33 @@ def _poll_all_devices() -> None:
 
 def _run_daily_billing() -> None:
     db = SessionLocal()
-    try:
+    settings = get_settings()
+
+    def _job():
         today = date.today()
-        created = invoicing.generate_monthly_invoices(db, today)
+        billing_settings = get_billing_settings(db)
+        created = invoicing.generate_monthly_invoices(db, billing_settings, today)
         overdue = invoicing.mark_overdue_invoices(db, today)
-        suspended = invoicing.suspend_clients_with_overdue_invoices(db, today)
+        suspended = invoicing.suspend_clients_with_overdue_invoices(db, billing_settings, today)
+        late_fee_applied = invoicing.apply_late_fees(db, datetime.now(timezone.utc), billing_settings)
         logger.info(
-            "Job de facturación: %d facturas creadas, %d marcadas vencidas, %d clientes suspendidos.",
+            "Job de facturación: %d facturas creadas, %d marcadas vencidas, %d clientes suspendidos, "
+            "%d moras aplicadas.",
             len(created),
             len(overdue),
             len(suspended),
+            len(late_fee_applied),
+        )
+
+    try:
+        run_with_retries(
+            _job,
+            max_attempts=settings.daily_billing_max_attempts,
+            backoff_base_seconds=0,
+            backoff_max_seconds=0,
+            on_attempt=lambda outcome: _record_attempt(
+                db, job_type=PollJobType.DAILY_BILLING, device_id=None, outcome=outcome
+            ),
         )
     finally:
         db.close()
@@ -173,7 +242,15 @@ async def poll_devices_forever() -> None:
 def _poll_client_online_status_once(db: Session, device: MikrotikDevice) -> None:
     password = decrypt_secret(device.encrypted_password)
     service = DeviceService(device, password)
-    _update_client_online_status(db, device, service)
+    settings = get_settings()
+    _update_client_online_status(
+        db,
+        device,
+        service,
+        max_attempts=settings.poller_retry_max_attempts,
+        backoff_base_seconds=settings.poller_retry_backoff_base_seconds,
+        backoff_max_seconds=settings.poller_retry_backoff_max_seconds,
+    )
     db.commit()
 
 
@@ -208,11 +285,23 @@ async def run_daily_billing_forever() -> None:
 
 def _run_traffic_maintenance() -> None:
     db = SessionLocal()
-    try:
-        settings = get_settings()
+    settings = get_settings()
+
+    def _job():
         deleted = purge_old_buckets(db, older_than_days=settings.netflow_retention_days)
         if deleted:
             logger.info("Purga de uso de tráfico: %d buckets viejos eliminados.", deleted)
+
+    try:
+        run_with_retries(
+            _job,
+            max_attempts=settings.traffic_maintenance_max_attempts,
+            backoff_base_seconds=0,
+            backoff_max_seconds=0,
+            on_attempt=lambda outcome: _record_attempt(
+                db, job_type=PollJobType.TRAFFIC_MAINTENANCE, device_id=None, outcome=outcome
+            ),
+        )
     finally:
         db.close()
 
