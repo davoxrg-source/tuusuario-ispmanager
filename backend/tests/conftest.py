@@ -43,6 +43,7 @@ def db_session():
     from app.db.session import SessionLocal
     from app.models.billing_settings import BillingSettings
     from app.models.client import Client
+    from app.models.inventory import InventoryItem, InventoryMovement, Supplier
     from app.models.mikrotik_device import MikrotikDevice
     from app.models.invoice import Invoice
     from app.models.payment import Payment
@@ -56,6 +57,11 @@ def db_session():
         yield session
     finally:
         session.rollback()
+        # InventoryMovement antes que Item/Supplier/User/Client -- referencia
+        # a los 4 sin ondelete=CASCADE, así que tiene que irse primero.
+        session.query(InventoryMovement).delete()
+        session.query(InventoryItem).delete()
+        session.query(Supplier).delete()
         session.query(Payment).delete()
         session.query(Invoice).delete()
         session.query(Client).delete()

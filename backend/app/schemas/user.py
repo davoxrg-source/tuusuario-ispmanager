@@ -34,6 +34,17 @@ class UserRead(BaseModel):
     zones: list[ZoneRead] = []
 
 
+class StaffNameRead(BaseModel):
+    """Solo id + nombre -- para poblar selects (ej. a qué técnico se le
+    asigna material en Almacén) sin exponer correo/rol/zonas de todo el
+    personal a un no-admin. Ver GET /users/directory."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    full_name: str
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"

@@ -2,6 +2,7 @@ from app.models.billing_settings import BillingSettings, ProrationTarget, Reconn
 from app.models.client import Client, ClientStatus
 from app.models.client_traffic_usage import ClientTrafficUsage
 from app.models.device_metric import DeviceMetric
+from app.models.inventory import InventoryItem, InventoryMovement, MovementReason, Supplier
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.mikrotik_device import MikrotikDevice, DeviceStatus
 from app.models.payment import Payment
@@ -19,9 +20,12 @@ __all__ = [
     "ClientTrafficUsage",
     "DeviceMetric",
     "Invoice",
+    "InventoryItem",
+    "InventoryMovement",
     "InvoiceStatus",
     "MikrotikDevice",
     "DeviceStatus",
+    "MovementReason",
     "Payment",
     "PaymentAccount",
     "Plan",
@@ -30,6 +34,7 @@ __all__ = [
     "PollJobType",
     "ProrationTarget",
     "ReconnectionFeeMode",
+    "Supplier",
     "Ticket",
     "TicketCategory",
     "TicketPriority",

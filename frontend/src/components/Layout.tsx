@@ -10,6 +10,7 @@ const navItems = [
   { to: "/billing", label: "Facturación" },
   { to: "/zones", label: "Zonas" },
   { to: "/mapa", label: "Mapa" },
+  { to: "/almacen", label: "Almacén" },
   { to: "/settings", label: "Configuración" },
 ];
 

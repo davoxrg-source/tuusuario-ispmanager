@@ -2,7 +2,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.deps import zone_scope_filter_ids
-from app.api.routes.users import create_user, update_user
+from app.api.routes.users import create_user, list_staff_directory, update_user
 from app.api.routes.zones import create_zone
 from app.core.security import hash_password
 from app.models.user import User, UserRole
@@ -82,3 +82,24 @@ def test_seed_admin_still_creates_working_admin_after_schema_changes(db_session)
     assert admin.zones == []
     # Sin zonas asignadas y aun así sin restricción -- confirma el bypass de ADMIN.
     assert zone_scope_filter_ids(admin) is None
+
+
+def test_staff_directory_returns_only_id_and_name_for_active_users(db_session):
+    active = create_user(
+        UserCreate(full_name="Tecnico Activo", email="activo@compusoft-isp.com", password="segura123"),
+        db_session,
+    )
+    inactive = create_user(
+        UserCreate(full_name="Tecnico Inactivo", email="inactivo@compusoft-isp.com", password="segura123"),
+        db_session,
+    )
+    update_user(inactive.id, UserUpdate(is_active=False), db_session)
+
+    directory = list_staff_directory(db_session)
+
+    # list_staff_directory devuelve filas ORM crudas -- el filtrado a solo
+    # id+full_name lo hace response_model (StaffNameRead) en la capa HTTP,
+    # no algo observable llamando la función directo, como el resto de los
+    # tests de este archivo.
+    assert [d.full_name for d in directory] == ["Tecnico Activo"]
+    assert directory[0].id == active.id

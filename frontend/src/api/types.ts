@@ -20,6 +20,11 @@ export interface UserRead {
   zones: Zone[];
 }
 
+export interface StaffName {
+  id: string;
+  full_name: string;
+}
+
 export interface UserInput {
   full_name: string;
   email: string;
@@ -336,4 +341,68 @@ export interface BillingSettings {
   reconnection_fee_amount: number;
   invoice_folio_prefix: string;
   invoice_folio_next_number: number;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+}
+
+export interface SupplierInput {
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  notes?: string | null;
+}
+
+export interface InventoryItem {
+  id: string;
+  name: string;
+  category: string;
+  quantity: number;
+  unit_cost: number | null;
+  supplier_id: string | null;
+  notes: string | null;
+}
+
+export interface InventoryItemInput {
+  name: string;
+  category?: string;
+  unit_cost?: number | null;
+  supplier_id?: string | null;
+  notes?: string | null;
+}
+
+export type MovementReason = "purchase" | "assignment" | "installation" | "return" | "adjustment" | "loss";
+
+export interface InventoryMovement {
+  id: string;
+  item_id: string;
+  reason: MovementReason;
+  quantity_delta: number;
+  assigned_to_user_id: string | null;
+  client_id: string | null;
+  note: string | null;
+  created_by_user_id: string;
+  created_at: string;
+}
+
+export interface InventoryMovementInput {
+  item_id: string;
+  reason: MovementReason;
+  quantity_delta: number;
+  assigned_to_user_id?: string | null;
+  client_id?: string | null;
+  note?: string | null;
+}
+
+export interface TechnicianBalance {
+  user_id: string;
+  user_name: string;
+  item_id: string;
+  item_name: string;
+  balance: number;
 }

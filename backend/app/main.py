@@ -16,6 +16,7 @@ from app.api.routes import (
     clients,
     devices,
     interfaces,
+    inventory,
     monitoring,
     plans,
     tickets,
@@ -96,7 +97,9 @@ app.include_router(interfaces.router, prefix=api_prefix)
 app.include_router(traffic.router, prefix=api_prefix)
 app.include_router(tickets.router, prefix=api_prefix)
 app.include_router(users.router, prefix=api_prefix)
+app.include_router(users.directory_router, prefix=api_prefix)
 app.include_router(zones.router, prefix=api_prefix)
+app.include_router(inventory.router, prefix=api_prefix)
 
 
 @app.get("/api/health")

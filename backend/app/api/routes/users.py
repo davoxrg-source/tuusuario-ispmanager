@@ -3,16 +3,28 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import get_current_user, require_admin
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.user import User
 from app.models.zone import Zone
-from app.schemas.user import UserCreate, UserRead, UserUpdate
+from app.schemas.user import StaffNameRead, UserCreate, UserRead, UserUpdate
 
 # Listado de personal es más sensible que el de zonas -- admin-only también
 # para leer, no solo para escribir.
 router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(require_admin)])
+
+# Directorio chico (solo id + nombre) para cualquier usuario autenticado --
+# lo necesitan, por ejemplo, los selects de "a qué técnico se asigna esto"
+# en Almacén, que no son admin-only. Router aparte del de arriba porque ese
+# es admin-only completo (incluso para leer, ver comentario arriba) y este
+# necesita quedar abierto a cualquier no-admin.
+directory_router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(get_current_user)])
+
+
+@directory_router.get("/directory", response_model=list[StaffNameRead])
+def list_staff_directory(db: Session = Depends(get_db)) -> list[User]:
+    return db.query(User).filter(User.is_active.is_(True)).order_by(User.full_name).all()
 
 
 def _get_user_or_404(db: Session, user_id: uuid.UUID) -> User:
