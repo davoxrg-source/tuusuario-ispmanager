@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { Client, ClientInput } from "./types";
+import type { BulkActionResult, Client, ClientInput } from "./types";
 
 export async function listClients(): Promise<Client[]> {
   const { data } = await apiClient.get<Client[]>("/clients");
@@ -27,5 +27,19 @@ export async function suspendClient(id: string): Promise<Client> {
 
 export async function reactivateClient(id: string): Promise<Client> {
   const { data } = await apiClient.post<Client>(`/clients/${id}/reactivate`);
+  return data;
+}
+
+export async function bulkSuspendClients(clientIds: string[]): Promise<BulkActionResult> {
+  const { data } = await apiClient.post<BulkActionResult>("/clients/bulk/suspend", {
+    client_ids: clientIds,
+  });
+  return data;
+}
+
+export async function bulkReactivateClients(clientIds: string[]): Promise<BulkActionResult> {
+  const { data } = await apiClient.post<BulkActionResult>("/clients/bulk/reactivate", {
+    client_ids: clientIds,
+  });
   return data;
 }

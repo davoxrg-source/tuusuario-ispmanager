@@ -260,4 +260,47 @@ export interface Invoice {
   amount: number;
   status: InvoiceStatus;
   paid_at: string | null;
+  promise_to_pay_until: string | null;
+  late_fee_amount: number;
+  late_fee_applied_at: string | null;
+  folio: string | null;
+}
+
+export interface BulkActionResultItem {
+  id: string;
+  ok: boolean;
+  detail: string | null;
+}
+
+export interface BulkActionResult {
+  results: BulkActionResultItem[];
+}
+
+export interface PaymentAccount {
+  id: string;
+  name: string;
+  kind: string;
+  is_active: boolean;
+}
+
+export interface AccountBalance {
+  id: string;
+  name: string;
+  kind: string;
+  total: number;
+}
+
+export interface BillingSettings {
+  generate_invoice_days_before_due: number;
+  suspend_days_after_due: number;
+  proration_enabled: boolean;
+  proration_min_days: number;
+  proration_target: "current_invoice" | "next_invoice";
+  late_fee_enabled: boolean;
+  late_fee_amount: number;
+  late_fee_apply_hour: number;
+  reconnection_fee_mode: "off" | "on_suspend" | "on_next_invoice";
+  reconnection_fee_amount: number;
+  invoice_folio_prefix: string;
+  invoice_folio_next_number: number;
 }
