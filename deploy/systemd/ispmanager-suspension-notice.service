@@ -1,0 +1,17 @@
+[Unit]
+Description=ISP Manager suspension notice server (walled garden HTTP)
+After=network.target
+
+[Service]
+Type=simple
+User=ispapp
+Group=ispapp
+WorkingDirectory=/home/ispapp/ispmanager/backend
+Environment=PORTAL_LOGIN_URL=http://10.100.8.10:8000/portal/login
+Environment=SUSPENSION_NOTICE_PORT=8095
+ExecStart=/home/ispapp/ispmanager/backend/.venv/bin/python3 -m app.cli.suspension_notice_server
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

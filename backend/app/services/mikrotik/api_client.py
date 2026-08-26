@@ -702,6 +702,13 @@ def get_filter_rule_by_comment(api: Any, comment: str) -> dict[str, Any] | None:
     return None
 
 
+def get_nat_rule_by_comment(api: Any, comment: str) -> dict[str, Any] | None:
+    for row in get_nat_rules(api):
+        if row.get("comment") == comment:
+            return row
+    return None
+
+
 def reset_configuration(api: Any, no_defaults: bool = True) -> None:
     """Borra TODA la configuración del equipo y lo reinicia. Con no_defaults=True
     (equivalente a 'no-defaults=yes' en RouterOS) el equipo queda sin bridge, sin

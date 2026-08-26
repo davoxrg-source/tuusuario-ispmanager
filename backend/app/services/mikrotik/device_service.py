@@ -174,17 +174,77 @@ class DeviceService:
             for row in sessions
         ]
 
-    def ensure_suspension_bootstrap(self) -> None:
-        """Idempotente: crea la regla de bloqueo de suspendidos si todavía
-        no existe en el equipo. A diferencia del bootstrap de QoS (uno por
-        plan, con preview/apply manual porque son ~30 objetos), acá es una
-        sola regla — se crea sola la primera vez que hace falta."""
+    def ensure_suspension_bootstrap(
+        self, notice_server_ip: str | None = None, notice_server_port: int = 8095
+    ) -> None:
+        """Idempotente: crea las 5 reglas de suspensión (permitir DNS,
+        permitir el tráfico ya redirigido al aviso, drop, aviso DNAT,
+        hairpin NAT del aviso) si todavía no existen, cada una chequeada
+        por su propio comment. A diferencia del bootstrap de QoS (uno por
+        plan, con preview/apply manual porque son ~30 objetos), acá son
+        reglas fijas — se crean solas la primera vez que hace falta.
+
+        Las 2 reglas de accept (DNS, tráfico redirigido) tienen que quedar
+        ANTES del drop en la chain (place-before) -- si el drop ya existe
+        (equipo con un bootstrap viejo, de antes de agregar estas reglas),
+        se insertan apuntando al .id real del drop existente en vez de
+        simplemente agregarlas al final, donde nunca se evaluarían.
+
+        notice_server_ip es requerido para crear las reglas del aviso por
+        primera vez (no tiene un default seguro -- depende de dónde corre
+        app/cli/suspension_notice_server.py); si falta y no se pueden crear,
+        se sigue igual con DNS+drop (permite seguir usando suspend/reactivate
+        sin aviso en vez de fallar)."""
         from app.services.mikrotik import suspension
 
         with self._api() as api:
-            if api_client.get_filter_rule_by_comment(api, suspension.FILTER_RULE_COMMENT):
+            drop_rule = api_client.get_filter_rule_by_comment(api, suspension.FILTER_RULE_COMMENT)
+            dns_rule = api_client.get_filter_rule_by_comment(api, suspension.DNS_ACCEPT_RULE_COMMENT)
+            notice_accept_rule = api_client.get_filter_rule_by_comment(
+                api, suspension.NOTICE_ACCEPT_RULE_COMMENT
+            )
+            notice_rule = api_client.get_nat_rule_by_comment(api, suspension.NOTICE_RULE_COMMENT)
+            notice_srcnat_rule = api_client.get_nat_rule_by_comment(
+                api, suspension.NOTICE_SRCNAT_RULE_COMMENT
+            )
+
+            if drop_rule and dns_rule and notice_accept_rule and notice_rule and notice_srcnat_rule:
                 return
-            for command in suspension.build_bootstrap_plan():
+
+            is_first_bootstrap = (
+                not drop_rule
+                and not dns_rule
+                and not notice_accept_rule
+                and not notice_rule
+                and not notice_srcnat_rule
+            )
+            if is_first_bootstrap and not notice_server_ip:
+                raise ValueError(
+                    "notice_server_ip es requerido para el primer bootstrap de suspensión."
+                )
+
+            if not dns_rule:
+                place_before = drop_rule.get(".id") if drop_rule else None
+                command = suspension.build_dns_accept_rule(place_before_id=place_before)
+                list(api(command.path, **command.params))
+
+            if not notice_accept_rule and notice_server_ip:
+                place_before = drop_rule.get(".id") if drop_rule else None
+                command = suspension.build_notice_accept_rule(
+                    notice_server_ip, notice_server_port, place_before_id=place_before
+                )
+                list(api(command.path, **command.params))
+
+            if not drop_rule:
+                command = suspension.build_drop_rule()
+                list(api(command.path, **command.params))
+
+            if not notice_rule and notice_server_ip:
+                command = suspension.build_notice_rule(notice_server_ip, notice_server_port)
+                list(api(command.path, **command.params))
+
+            if not notice_srcnat_rule and notice_server_ip:
+                command = suspension.build_notice_srcnat_rule(notice_server_ip, notice_server_port)
                 list(api(command.path, **command.params))
 
     def suspend_client_ip(self, client_ip: str) -> None:
