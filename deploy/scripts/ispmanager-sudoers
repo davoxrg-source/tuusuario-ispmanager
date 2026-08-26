@@ -18,6 +18,13 @@ Cmnd_Alias ISPMANAGER_SYSTEMCTL = /usr/bin/systemctl daemon-reload, \
     /usr/bin/systemctl stop ispmanager-backend, \
     /usr/bin/systemctl restart ispmanager-backend, \
     /usr/bin/systemctl status ispmanager-backend, \
+    /usr/bin/systemctl enable ispmanager-frontend-dev, \
+    /usr/bin/systemctl enable --now ispmanager-frontend-dev, \
+    /usr/bin/systemctl disable ispmanager-frontend-dev, \
+    /usr/bin/systemctl start ispmanager-frontend-dev, \
+    /usr/bin/systemctl stop ispmanager-frontend-dev, \
+    /usr/bin/systemctl restart ispmanager-frontend-dev, \
+    /usr/bin/systemctl status ispmanager-frontend-dev, \
     /usr/bin/systemctl start postgresql, \
     /usr/bin/systemctl stop postgresql, \
     /usr/bin/systemctl restart postgresql, \
@@ -25,9 +32,12 @@ Cmnd_Alias ISPMANAGER_SYSTEMCTL = /usr/bin/systemctl daemon-reload, \
     /usr/bin/systemctl enable postgresql
 
 Cmnd_Alias ISPMANAGER_FILES = /usr/bin/cp /home/ispapp/ispmanager/deploy/systemd/ispmanager-backend.service /etc/systemd/system/ispmanager-backend.service, \
-    /usr/bin/install -m 0644 -o root -g root /home/ispapp/ispmanager/deploy/systemd/ispmanager-backend.service /etc/systemd/system/ispmanager-backend.service
+    /usr/bin/install -m 0644 -o root -g root /home/ispapp/ispmanager/deploy/systemd/ispmanager-backend.service /etc/systemd/system/ispmanager-backend.service, \
+    /usr/bin/cp /home/ispapp/ispmanager/deploy/systemd/ispmanager-frontend-dev.service /etc/systemd/system/ispmanager-frontend-dev.service, \
+    /usr/bin/install -m 0644 -o root -g root /home/ispapp/ispmanager/deploy/systemd/ispmanager-frontend-dev.service /etc/systemd/system/ispmanager-frontend-dev.service
 
 Cmnd_Alias ISPMANAGER_LOGS = /usr/bin/journalctl -u ispmanager-backend *, \
+    /usr/bin/journalctl -u ispmanager-frontend-dev *, \
     /usr/bin/journalctl -u postgresql *
 
 # CAP_NET_RAW sobre el binario mactelnet: lo necesita para abrir sockets

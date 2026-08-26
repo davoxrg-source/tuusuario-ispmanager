@@ -1,0 +1,19 @@
+[Unit]
+Description=ISP Manager frontend dev server (Vite, panel de staff)
+After=network.target
+
+[Service]
+Type=simple
+User=ispapp
+Group=ispapp
+WorkingDirectory=/home/ispapp/ispmanager/frontend
+# Usa el Node 20 instalado vía nvm (aislado del Node 18 del sistema, que
+# tiene ~25 paquetes node-* de Ubuntu atados a esa versión exacta -- ver
+# la nota en deploy/scripts/ispmanager-sudoers) en vez del npm de /usr/bin.
+Environment=PATH=/home/ispapp/.nvm/versions/node/v20.20.2/bin:/usr/bin:/bin
+ExecStart=/home/ispapp/.nvm/versions/node/v20.20.2/bin/npm run dev -- --host 0.0.0.0
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
