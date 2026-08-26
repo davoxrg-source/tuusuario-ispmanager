@@ -7,12 +7,13 @@ from app.api.deps import get_current_client
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.client import Client
+from app.models.device_token import DeviceOwnerType, DeviceToken
 from app.models.invoice import Invoice, InvoiceStatus
 from app.models.payment_report import PaymentReport
 from app.models.push_subscription import PushSubscription
 from app.models.ticket import Ticket, TicketReply
 from app.schemas.billing import InvoiceRead
-from app.schemas.notification import PushSubscriptionCreate, VapidPublicKeyRead
+from app.schemas.notification import DeviceTokenCreate, PushSubscriptionCreate, VapidPublicKeyRead
 from app.schemas.portal import (
     ClientPortalProfileUpdate,
     ClientPortalRead,
@@ -214,5 +215,46 @@ def delete_push_subscription(
     # explícito, fácil de olvidar).
     db.query(PushSubscription).filter(
         PushSubscription.endpoint == endpoint, PushSubscription.client_id == current_client.id
+    ).delete()
+    db.commit()
+
+
+@router.post("/device-tokens", status_code=204)
+def create_device_token(
+    payload: DeviceTokenCreate,
+    db: Session = Depends(get_db),
+    current_client: Client = Depends(get_current_client),
+) -> None:
+    """Token FCM de la app móvil de clientes -- ver
+    app/services/notifications/fcm_provider.py. Mismo patrón upsert-por-
+    token que create_push_subscription (reinstalar la app en otro celular
+    no debe dejar 2 tokens huérfanos apuntando al mismo dispositivo viejo)."""
+    existing = db.query(DeviceToken).filter(DeviceToken.fcm_token == payload.fcm_token).first()
+    if existing:
+        existing.owner_type = DeviceOwnerType.CLIENT
+        existing.owner_id = current_client.id
+        existing.platform = payload.platform
+    else:
+        db.add(
+            DeviceToken(
+                owner_type=DeviceOwnerType.CLIENT,
+                owner_id=current_client.id,
+                fcm_token=payload.fcm_token,
+                platform=payload.platform,
+            )
+        )
+    db.commit()
+
+
+@router.delete("/device-tokens", status_code=204)
+def delete_device_token(
+    fcm_token: str,
+    db: Session = Depends(get_db),
+    current_client: Client = Depends(get_current_client),
+) -> None:
+    db.query(DeviceToken).filter(
+        DeviceToken.fcm_token == fcm_token,
+        DeviceToken.owner_type == DeviceOwnerType.CLIENT,
+        DeviceToken.owner_id == current_client.id,
     ).delete()
     db.commit()

@@ -45,6 +45,7 @@ def db_session():
     from app.models.billing_settings import BillingSettings
     from app.models.client import Client
     from app.models.contract import Contract, ContractTemplate
+    from app.models.device_token import DeviceToken
     from app.models.hotspot import HotspotProfile, HotspotVoucher
     from app.models.installation import Installation
     from app.models.inventory import InventoryItem, InventoryMovement, Supplier
@@ -69,6 +70,9 @@ def db_session():
         # ApiKey antes que User -- created_by_user_id es FK a users sin
         # ondelete=CASCADE.
         session.query(ApiKey).delete()
+        # DeviceToken no tiene FK real (owner_id es condicional según
+        # owner_type, ver el modelo) -- se puede borrar en cualquier orden.
+        session.query(DeviceToken).delete()
         # Contract antes que User -- created_by_user_id/witnessed_by_user_id
         # son FK a users sin ondelete=CASCADE.
         session.query(Contract).delete()

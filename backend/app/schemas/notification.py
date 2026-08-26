@@ -10,7 +10,8 @@ class NotificationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    client_id: uuid.UUID
+    client_id: uuid.UUID | None = None
+    user_id: uuid.UUID | None = None
     channel: NotificationChannel
     event_type: str
     recipient: str
@@ -35,3 +36,10 @@ class PushSubscriptionCreate(BaseModel):
 
 class VapidPublicKeyRead(BaseModel):
     public_key: str
+
+
+class DeviceTokenCreate(BaseModel):
+    """Token FCM que manda una app móvil nativa al activar notificaciones."""
+
+    fcm_token: str
+    platform: str = "android"

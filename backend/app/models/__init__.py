@@ -4,6 +4,7 @@ from app.models.client import Client, ClientStatus
 from app.models.client_traffic_usage import ClientTrafficUsage
 from app.models.contract import Contract, ContractStatus, ContractTemplate
 from app.models.device_metric import DeviceMetric
+from app.models.device_token import DeviceOwnerType, DeviceToken
 from app.models.hotspot import HotspotProfile, HotspotVoucher, HotspotVoucherStatus
 from app.models.installation import Installation, InstallationStatus
 from app.models.inventory import InventoryItem, InventoryMovement, MovementReason, Supplier
@@ -31,6 +32,8 @@ __all__ = [
     "ContractStatus",
     "ContractTemplate",
     "DeviceMetric",
+    "DeviceOwnerType",
+    "DeviceToken",
     "HotspotProfile",
     "HotspotVoucher",
     "HotspotVoucherStatus",

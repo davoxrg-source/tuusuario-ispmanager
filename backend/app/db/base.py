@@ -8,6 +8,7 @@ from app.models import (  # noqa: F401
     Contract,
     ContractTemplate,
     DeviceMetric,
+    DeviceToken,
     HotspotProfile,
     HotspotVoucher,
     Installation,

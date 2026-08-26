@@ -2,8 +2,10 @@ import uuid
 from unittest.mock import patch
 
 from app.models.client import Client, ClientStatus
+from app.models.device_token import DeviceOwnerType, DeviceToken
 from app.models.notification import NotificationChannel, NotificationStatus
 from app.models.push_subscription import PushSubscription
+from app.services.notifications.fcm_provider import PushResult as FcmResult
 from app.services.notifications.push_provider import PushResult
 from app.services.notifications.service import notify_client
 
@@ -80,3 +82,48 @@ def test_notify_client_deletes_expired_push_subscription(db_session):
 
     assert notifications[0].status == NotificationStatus.FAILED
     assert db_session.get(PushSubscription, sub_id) is None
+
+
+def test_notify_client_sends_fcm_to_each_device_token(db_session):
+    client = _make_client(db_session)
+    token = DeviceToken(owner_type=DeviceOwnerType.CLIENT, owner_id=client.id, fcm_token="fcm-1")
+    db_session.add(token)
+    db_session.commit()
+
+    with patch(
+        "app.services.notifications.service.send_fcm",
+        return_value=FcmResult(success=True, error=None),
+    ):
+        notifications = notify_client(db_session, client, event_type="test", subject="Asunto", body="Cuerpo")
+
+    assert len(notifications) == 1
+    assert notifications[0].channel == NotificationChannel.FCM
+    assert notifications[0].status == NotificationStatus.SENT
+    assert notifications[0].client_id == client.id
+
+
+def test_notify_client_deletes_expired_fcm_token(db_session):
+    client = _make_client(db_session)
+    token = DeviceToken(owner_type=DeviceOwnerType.CLIENT, owner_id=client.id, fcm_token="fcm-2")
+    db_session.add(token)
+    db_session.commit()
+    token_id = token.id
+
+    with patch(
+        "app.services.notifications.service.send_fcm",
+        return_value=FcmResult(success=False, error="Token expirado.", expired=True),
+    ):
+        notify_client(db_session, client, event_type="test", subject="Asunto", body="Cuerpo")
+
+    assert db_session.get(DeviceToken, token_id) is None
+
+
+def test_notify_client_only_notifies_own_device_tokens(db_session):
+    client_a = _make_client(db_session)
+    client_b = _make_client(db_session)
+    db_session.add(DeviceToken(owner_type=DeviceOwnerType.CLIENT, owner_id=client_b.id, fcm_token="fcm-b"))
+    db_session.commit()
+
+    notifications = notify_client(db_session, client_a, event_type="test", subject="Asunto", body="Cuerpo")
+
+    assert notifications == []

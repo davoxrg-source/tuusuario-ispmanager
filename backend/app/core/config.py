@@ -71,6 +71,15 @@ class Settings(BaseSettings):
     wompi_events_secret: str = ""
     wompi_api_base_url: str = "https://sandbox.wompi.co/v1"
 
+    # Push nativo (FCM) para las apps móviles, ver
+    # app/services/notifications/fcm_provider.py -- credencial de
+    # infraestructura, mismo criterio que SMTP/VAPID/Wompi. El JSON completo
+    # de la service account de Firebase (descargado del panel del proyecto),
+    # como un único valor de .env -- se parsea con json.loads, no se guarda
+    # como archivo aparte para no depender de una ruta de filesystem extra.
+    firebase_project_id: str = ""
+    firebase_credentials_json: str = ""
+
     environment: str = "production"
     cors_origins: str = "http://localhost:5173"
 

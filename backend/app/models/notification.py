@@ -13,6 +13,9 @@ from app.db.types import pg_enum
 class NotificationChannel(str, enum.Enum):
     EMAIL = "email"
     PUSH = "push"
+    # Push nativo (FCM) de las apps móviles -- distinto de PUSH (Web Push
+    # del navegador), ver DeviceToken/fcm_provider.py.
+    FCM = "fcm"
 
 
 class NotificationStatus(str, enum.Enum):
@@ -29,7 +32,11 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clients.id"))
+    # Exactamente uno de los dos está seteado -- mismo patrón que
+    # Ticket.created_by_user_id/created_by_client_id: notify_client() usa
+    # client_id, notify_user() usa user_id.
+    client_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("clients.id"), nullable=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     channel: Mapped[NotificationChannel] = mapped_column(pg_enum(NotificationChannel, "notification_channel"))
     event_type: Mapped[str] = mapped_column(String(60))
     # Congelado al momento del envío -- el email/endpoint usado, no una
