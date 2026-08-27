@@ -157,7 +157,7 @@ def kbps_for_plan(plan: Plan) -> tuple[int, int, int, int]:
     return ceil_down, ceil_up, floor_down, floor_up
 
 
-DEFAULT_POOL_CAPACITY_KBPS = 1_000_000  # 1 Gbit -- techo agregado del pool, no del cliente (ver bug documentado abajo)
+DEFAULT_POOL_CAPACITY_KBPS = 10_000_000  # 10 Gbit -- techo agregado del pool, no del cliente (ver bug documentado abajo)
 
 
 def build_plan_bootstrap_plan(
