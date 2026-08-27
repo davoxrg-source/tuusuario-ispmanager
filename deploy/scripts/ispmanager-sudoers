@@ -59,5 +59,15 @@ Cmnd_Alias ISPMANAGER_LOGS = /usr/bin/journalctl -u ispmanager-backend *, \
 Cmnd_Alias ISPMANAGER_CAPS = /usr/sbin/setcap cap_net_raw+ep /usr/bin/mactelnet, \
     /usr/sbin/setcap cap_net_raw+ep /home/ispapp/ispmanager/backend/bin/mactelnet
 
-ispapp ALL=(root) NOPASSWD: ISPMANAGER_APT, ISPMANAGER_SYSTEMCTL, ISPMANAGER_FILES, ISPMANAGER_LOGS, ISPMANAGER_CAPS
+# IPs secundarias efímeras para la prueba de carga de QoS (1000 clientes
+# sintéticos sobre el plan C_10MB) -- ver deploy/scripts/loadtest-secondary-ips.sh,
+# que valida interfaz/rango/cantidad antes de tocar nada. El usuario ispapp
+# no tiene CAP_NET_ADMIN por defecto, así que agregar/quitar direcciones IP
+# de una interfaz necesita este permiso puntual.
+Cmnd_Alias ISPMANAGER_LOADTEST = /home/ispapp/ispmanager/deploy/scripts/loadtest-secondary-ips.sh add 10.100.12.1 20 ens192, \
+    /home/ispapp/ispmanager/deploy/scripts/loadtest-secondary-ips.sh del 10.100.12.1 20 ens192, \
+    /home/ispapp/ispmanager/deploy/scripts/loadtest-secondary-ips.sh add 10.100.12.1 1000 ens192, \
+    /home/ispapp/ispmanager/deploy/scripts/loadtest-secondary-ips.sh del 10.100.12.1 1000 ens192
+
+ispapp ALL=(root) NOPASSWD: ISPMANAGER_APT, ISPMANAGER_SYSTEMCTL, ISPMANAGER_FILES, ISPMANAGER_LOGS, ISPMANAGER_CAPS, ISPMANAGER_LOADTEST
 ispapp ALL=(postgres) NOPASSWD: /usr/bin/psql
