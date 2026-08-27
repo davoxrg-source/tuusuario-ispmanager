@@ -157,6 +157,9 @@ def kbps_for_plan(plan: Plan) -> tuple[int, int, int, int]:
     return ceil_down, ceil_up, floor_down, floor_up
 
 
+DEFAULT_POOL_CAPACITY_KBPS = 1_000_000  # 1 Gbit -- techo agregado del pool, no del cliente (ver bug documentado abajo)
+
+
 def build_plan_bootstrap_plan(
     plan: Plan,
     lan_interface: str,
@@ -165,6 +168,8 @@ def build_plan_bootstrap_plan(
     priority_udp_ports: list[int] | None = None,
     realtime_tcp_max_size: int = 128,
     realtime_udp_max_size: int = 200,
+    lan_pool_capacity_kbps: int = DEFAULT_POOL_CAPACITY_KBPS,
+    wan_pool_capacity_kbps: int = DEFAULT_POOL_CAPACITY_KBPS,
 ) -> list[WanCommandResult]:
     """Todo lo que un plan necesita para poder dar shaping, armado una sola
     vez. Después de esto, un cliente nuevo en este plan solo necesita
@@ -290,9 +295,22 @@ def build_plan_bootstrap_plan(
     # fijo en el piso (rt=ls=9%, sin upper limit) — tráfico real-time
     # genuino (voz, DNS, ping) nunca necesita más que eso, y así ninguna
     # mala clasificación puede inundar la cola de más prioridad.
-    def add_leaf(direction: str, tier: str, parent_interface: str, ceil_kbps: int, floor_kbps: int, queue_type: str, priority: int) -> None:
+    #
+    # SEGUNDO bug real, encontrado recién con una prueba de carga de 1000
+    # clientes sintéticos: prio/bulk usaban max-limit=ceil_kbps (el techo
+    # POR CLIENTE) en el nodo de queue tree, que es COMPARTIDO por TODOS los
+    # clientes del plan (PCQ separa adentro de ese mismo nodo). Resultado:
+    # el pool ENTERO de un plan quedaba limitado a la velocidad de UN SOLO
+    # cliente, sin importar cuántos estuvieran activos -- confirmado en vivo
+    # contra un CCR2004 real: con 1000 clientes de un plan de 10Mbit, el
+    # nodo bulk nunca superó 10Mbit agregados (contra los ~1000×10Mbit que
+    # debería poder repartir PCQ), con `dropped` creciendo sin parar. El
+    # límite por cliente ya lo impone el PCQ (`pcq-rate=ceil`, ver arriba)
+    # -- el max-limit de ESTE nodo tiene que ser la capacidad del POOL
+    # (cuánto puede cursar el plan entero en conjunto), no la de un cliente.
+    def add_leaf(direction: str, tier: str, parent_interface: str, pool_capacity_kbps: int, floor_kbps: int, queue_type: str, priority: int) -> None:
         mark = mark_name(ref, tier)
-        max_limit_kbps = floor_kbps if tier == TIER_REALTIME else ceil_kbps
+        max_limit_kbps = floor_kbps if tier == TIER_REALTIME else pool_capacity_kbps
         params: dict[str, str] = {
             "name": f"isp-{ref}-{direction}-{tier}",
             "parent": parent_interface,
@@ -313,9 +331,9 @@ def build_plan_bootstrap_plan(
 
     priority_by_tier = {TIER_REALTIME: 1, TIER_PRIORITY: 4, TIER_BULK: 8}
     for tier in TIERS:
-        add_leaf("down", tier, lan_interface, ceil_down, floor_down, pcq_down, priority_by_tier[tier])
+        add_leaf("down", tier, lan_interface, lan_pool_capacity_kbps, floor_down, pcq_down, priority_by_tier[tier])
     for tier in TIERS:
-        add_leaf("up", tier, wan_interface, ceil_up, floor_up, pcq_up, priority_by_tier[tier])
+        add_leaf("up", tier, wan_interface, wan_pool_capacity_kbps, floor_up, pcq_up, priority_by_tier[tier])
 
     return commands
 

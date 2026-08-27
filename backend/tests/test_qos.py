@@ -114,14 +114,23 @@ def test_build_plan_bootstrap_queue_tree_has_three_tiers_per_direction_with_floo
     assert prio["limit-at"] == "1800k"
     assert "limit-at" not in bulk
 
-    # Techo: prio y bulk llegan al ceil del plan; rt NO -- su techo es el
-    # piso (floor), igual que el legacy (rt=ls=9%, sin `ul`). Si rt pudiera
-    # llegar al ceil, tráfico mal clasificado ahí (paquetes chicos de un
-    # test de velocidad, por ejemplo) puede saturar la cola de mayor
-    # prioridad consigo misma y arrastrar el tráfico real-time genuino
-    # (bug real, visto en producción).
+    # Techo: rt usa el piso (floor), igual que el legacy (rt=ls=9%, sin
+    # `ul`) -- si rt pudiera llegar al ceil, tráfico mal clasificado ahí
+    # (paquetes chicos de un test de velocidad, por ejemplo) puede saturar
+    # la cola de mayor prioridad consigo misma y arrastrar el tráfico
+    # real-time genuino (bug real, visto en producción).
+    #
+    # prio/bulk usan la capacidad del POOL (parámetro aparte,
+    # lan_pool_capacity_kbps/wan_pool_capacity_kbps), NO el ceil del plan --
+    # segundo bug real, encontrado con una prueba de carga de 1000 clientes
+    # sintéticos: este nodo es COMPARTIDO por todos los clientes del plan
+    # (PCQ separa adentro), así que usar el ceil por cliente acá capaba el
+    # pool ENTERO a la velocidad de uno solo, sin importar cuántos clientes
+    # estuvieran activos (confirmado en vivo: 1000 clientes de 10Mbit nunca
+    # superaron 10Mbit agregados, con paquetes descartados creciendo sin
+    # parar). El límite por cliente ya lo impone el PCQ (pcq-rate=ceil).
     assert rt["max-limit"] == "1800k"
-    assert prio["max-limit"] == bulk["max-limit"] == "20000k"
+    assert prio["max-limit"] == bulk["max-limit"] == str(qos.DEFAULT_POOL_CAPACITY_KBPS) + "k"
 
     # Prioridad: tiempo real > prioridad > bulk (1 = más alta en RouterOS).
     assert int(rt["priority"]) < int(prio["priority"]) < int(bulk["priority"])
@@ -134,6 +143,38 @@ def test_build_plan_bootstrap_queue_tree_has_three_tiers_per_direction_with_floo
     assert rt["packet-mark"] == qos.mark_name(ref, qos.TIER_REALTIME)
     assert prio["packet-mark"] == qos.mark_name(ref, qos.TIER_PRIORITY)
     assert bulk["packet-mark"] == qos.mark_name(ref, qos.TIER_BULK)
+
+
+def test_build_plan_bootstrap_pool_capacity_is_independent_of_per_client_ceil():
+    """El bug real (ver comentario arriba): antes de este fix, el max-limit
+    de prio/bulk usaba el ceil del plan -- un plan de 10Mbit y uno de
+    300Mbit terminaban con el MISMO nodo compartido limitado a la
+    velocidad de un solo cliente. Acá se confirma que ahora es al revés:
+    la capacidad del pool es un parámetro aparte, constante entre planes
+    de distinta velocidad, y distinta del pcq-rate (que sí sigue siendo
+    por-cliente, ligado al ceil del plan)."""
+    slow_plan = _fake_plan(download_speed_mbps=10, upload_speed_mbps=10)
+    fast_plan = _fake_plan(download_speed_mbps=300, upload_speed_mbps=300)
+
+    for plan in (slow_plan, fast_plan):
+        commands = qos.build_plan_bootstrap_plan(
+            plan, lan_interface="bridge-lan", wan_interface="ether1-wan",
+            lan_pool_capacity_kbps=500_000, wan_pool_capacity_kbps=200_000,
+        )
+        ref = qos.plan_ref(plan)
+        tree = {c.params["name"]: c.params for c in commands if c.path == "/queue/tree/add"}
+        pcq = {c.params["name"]: c.params for c in commands if c.path == "/queue/type/add"}
+
+        # Pool: mismo valor sin importar la velocidad del plan (parámetro aparte).
+        assert tree[f"isp-{ref}-down-bulk"]["max-limit"] == "500000k"
+        assert tree[f"isp-{ref}-down-prio"]["max-limit"] == "500000k"
+        assert tree[f"isp-{ref}-up-bulk"]["max-limit"] == "200000k"
+        assert tree[f"isp-{ref}-up-prio"]["max-limit"] == "200000k"
+
+        # Por-cliente: el pcq-rate sigue siendo el ceil del plan, distinto entre planes.
+        ceil_down, ceil_up, _, _ = qos.kbps_for_plan(plan)
+        assert pcq[qos.pcq_type_name(ref, "down")]["pcq-rate"] == f"{ceil_down}k"
+        assert pcq[qos.pcq_type_name(ref, "up")]["pcq-rate"] == f"{ceil_up}k"
 
 
 def test_build_plan_bootstrap_mangle_marks_every_packet_not_the_connection():
